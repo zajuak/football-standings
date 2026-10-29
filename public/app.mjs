@@ -5,6 +5,7 @@ import {
 import { buildPoster, escapeXml } from './poster.mjs';
 import { LocalHistory, LOCAL_QUEUE_KEY as SYNC_KEY } from './local-history.mjs';
 import { validSnapshot } from './snapshot.mjs';
+import { CloudSync } from './cloud-sync.mjs';
 
 const $ = id => document.getElementById(id);
 const elements = {
@@ -59,8 +60,20 @@ const sync = new LocalHistory({
   },
 });
 
+const cloud = new CloudSync({
+  storage: { getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) },
+  onStatus(message, error = false) {
+    $('cloud-status').textContent = message;
+    $('cloud-status').classList.toggle('is-error', error);
+    $('cloud-conflict').hidden = !cloud.conflict;
+    if (error || cloud.conflict) $('cloud-panel').open = true;
+    if (!error && !cloud.queue.length && $('history-panel').open && $('history-source').value === 'cloud') void showHistory();
+  },
+});
+
 function save(action = '修改赛事设置') {
   sync.enqueue(state, action);
+  if (cloud.ready && cloud.selected) cloud.enqueue(state, action);
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
 }
 
@@ -504,10 +517,10 @@ elements.downloadPng.addEventListener('click', async () => {
 
 renderAll(true);
 void sync.init(state);
-window.addEventListener('online', () => { void sync.retry(state); });
-setInterval(() => { if (sync.queue.length && !sync.conflict) void sync.retry(state); }, 15000);
+window.addEventListener('online', () => { void sync.retry(state); if (cloud.ready) void cloud.retry(); });
+setInterval(() => { if (sync.queue.length) void sync.retry(state); if (cloud.ready && cloud.queue.length && !cloud.conflict) void cloud.retry(); }, 15000);
 window.addEventListener('beforeunload', event => {
-  if (sync.queue.length) { event.preventDefault(); event.returnValue = ''; }
+  if (sync.queue.length || cloud.queue.length) { event.preventDefault(); event.returnValue = ''; }
 });
 $('retry-sync').addEventListener('click', async () => {
   await sync.retry(state);
@@ -515,27 +528,34 @@ $('retry-sync').addEventListener('click', async () => {
 });
 $('open-history').addEventListener('click', () => { $('history-panel').open = true; $('history-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 let historyCursor = null;
+function historySource() {
+  if ($('history-source').value !== 'cloud') return sync;
+  if (!cloud.ready) throw new Error('请先连接云端');
+  return cloud;
+}
+$('history-source').addEventListener('change', () => { void showHistory(); });
 async function showHistory(append = false) {
   const list = $('history-list');
   const button = $('more-history'); button.disabled = true;
   try {
-    const page = await sync.request(`?history=1${append && historyCursor ? `&before=${historyCursor}` : ''}`);
+    const page = await historySource().request(`?history=1${append && historyCursor ? `&before=${historyCursor}` : ''}`);
     if (!append) list.replaceChildren();
     if (!page.items.length && !append) list.textContent = '暂无本机历史记录。';
     for (const item of page.items) {
       const row = document.createElement('div'); row.className = 'history-item';
       const label = document.createElement('span');
-      label.textContent = `版本 ${item.revision} · ${item.action}${item.applied ? '' : '（冲突存档）'}`;
+      label.textContent = `版本 ${item.revision} · ${item.action}${item.applied ? '' : '（历史存档）'}`;
       const time = document.createElement('small'); time.textContent = new Date(item.created_at).toLocaleString('zh-CN', { hour12: false });
       const restore = document.createElement('button'); restore.type = 'button'; restore.className = 'button button-secondary'; restore.textContent = '恢复此版本';
       restore.addEventListener('click', async () => {
         if (sync.queue.length) { toast('请先等待当前修改保存完成'); return; }
         restore.disabled = true;
         try {
-          const record = await sync.request(`?revision=${item.revision}`);
+          const record = await historySource().request(`?revision=${item.revision}`);
           if (!isValidState(record.state)) throw new Error('历史数据格式异常');
           if (!confirm(`恢复到版本 ${item.revision}？当前版本也会继续保留在历史中。`)) return;
           state = migrateState(record.state); cancelEdit(); renderAll(true);
+          if ($('history-source').value === 'cloud') cloud.selected = true;
           save(`恢复历史版本 ${item.revision}`);
           await sync.flush(); await showHistory();
         } catch (error) { toast(error.message); }
@@ -558,12 +578,12 @@ $('export-history').addEventListener('click', async () => {
   try {
     const items = []; let before = null;
     do {
-      const page = await sync.request(`?history=1&full=1${before ? `&before=${before}` : ''}`);
+      const page = await historySource().request(`?history=1&full=1${before ? `&before=${before}` : ''}`);
       items.push(...page.items); before = page.next;
     } while (before);
-    const backup = { format: 'pku-football-history-v1', exportedAt: new Date().toISOString(), state, pending: sync.queue, items };
+    const backup = { format: 'pku-football-history-v1', exportedAt: new Date().toISOString(), state, pending: [...sync.queue, ...cloud.queue], items };
     download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), '积分榜完整历史.json');
-    toast(`已导出 ${items.length} 条历史及 ${sync.queue.length} 条待存档提交`);
+    toast(`已导出 ${items.length} 条历史及 ${sync.queue.length + cloud.queue.length} 条待存档提交`);
   } catch (error) { toast(`完整历史导出失败：${error.message}，可先导出当前数据`); }
   finally { button.disabled = false; }
 });
@@ -581,6 +601,54 @@ $('import-data').addEventListener('change', async event => {
   } catch (error) { toast(error.message); }
   finally { event.target.value = ''; }
 });
+
+async function cloudAction(action) {
+  const main = document.querySelector('main');
+  main.inert = true; $('reset-competition').disabled = true;
+  try { await action(); }
+  catch (error) { $('cloud-status').textContent = error.message; toast(error.message); }
+  finally { main.inert = false; $('reset-competition').disabled = false; }
+}
+function useCloudState(saved) {
+  if (!validSnapshot(saved)) throw new Error('云端数据格式不正确');
+  state = migrateState(saved); cancelEdit(); renderAll(true);
+  sync.enqueue(state, '读取云端积分榜');
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+$('cloud-connect').addEventListener('click', () => { void cloudAction(async () => {
+  const token = $('cloud-token').value.trim();
+  if (token.length < 24) throw new Error('同步口令至少需要 24 位');
+  await cloud.connect(token);
+}); });
+$('cloud-upload').addEventListener('click', () => { void cloudAction(async () => {
+  if (!cloud.ready) throw new Error('请先输入口令并连接云端');
+  if (sync.running || sync.queue.length) throw new Error('请先等待本机数据保存完成');
+  if (!confirm('上传本机全部历史，并将本机当前积分榜设为云端最新版本？已有云端历史会继续保留。')) return;
+  const records = []; let before = null;
+  do {
+    const page = await sync.request(`?history=1&full=1${before ? `&before=${before}` : ''}`);
+    records.push(...page.items); before = page.next;
+  } while (before);
+  await cloud.migrate(records.reverse(), state);
+}); });
+$('cloud-load').addEventListener('click', () => { void cloudAction(async () => {
+  if (!cloud.ready) throw new Error('请先连接云端');
+  if (cloud.queue.length) throw new Error('请先完成同步或处理冲突');
+  const latest = await cloud.request();
+  if (!latest.state) throw new Error('云端暂无数据，请先上传本机历史');
+  if (!confirm('读取云端最新积分榜？当前本机版本会保留在本机历史中。')) return;
+  useCloudState(latest.state); cloud.revision = latest.revision; cloud.selected = true; cloud.persist();
+  $('cloud-status').textContent = `已读取云端版本 ${latest.revision} · 后续修改自动同步`;
+}); });
+$('cloud-retry').addEventListener('click', () => { void cloudAction(async () => {
+  if (!cloud.ready) throw new Error('请先连接云端'); await cloud.retry();
+}); });
+$('cloud-disconnect').addEventListener('click', () => { cloud.disconnect(); $('cloud-token').value = ''; });
+for (const [id, local] of [['cloud-keep', true], ['cloud-read', false]]) {
+  $(id).addEventListener('click', () => { void cloudAction(async () => {
+    await cloud.resolve(local, useCloudState); renderAll(true);
+  }); });
+}
 
 fetch('./public/pku-football-logo.png')
   .then(response => {

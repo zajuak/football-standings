@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from
 import path from "node:path";
 const root = path.resolve(import.meta.dirname, "../..");
 if (existsSync(path.join(root, "local-history.mjs"))) {
-  for (const file of ["app.mjs", "core.mjs", "poster.mjs", "local-history.mjs", "snapshot.mjs", "styles.css", "public/pku-football-logo.png"]) {
+  for (const file of ["app.mjs", "core.mjs", "poster.mjs", "local-history.mjs", "cloud-sync.mjs", "snapshot.mjs", "styles.css", "public/pku-football-logo.png"]) {
     const dest = path.resolve("public", file); mkdirSync(path.dirname(dest), { recursive: true });
     copyFileSync(path.join(root, file), dest);
   }
