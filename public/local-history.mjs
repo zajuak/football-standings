@@ -54,7 +54,14 @@ export class IndexedArchive {
       request.onerror = () => reject(request.error);
     });
   }
-  async latest() { return (await this.list(Number.MAX_SAFE_INTEGER, true)).items[0] ?? null; }
+  async latest() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction('submissions').objectStore('submissions').openCursor(null, 'prev');
+      request.onsuccess = () => resolve(request.result?.value ?? null);
+      request.onerror = () => reject(request.error);
+    });
+  }
 }
 
 export class LocalHistory {

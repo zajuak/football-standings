@@ -48,6 +48,7 @@ const sync = new LocalHistory({
     elements.saveStatus.replaceChildren();
     const dot = document.createElement('span'); dot.className = 'status-dot';
     elements.saveStatus.append(dot, document.createTextNode(message));
+    if (!error && !sync.queue.length && $('history-panel').open) void showHistory();
     $('pending-count').textContent = sync.queue.length ? `本机还有 ${sync.queue.length} 次提交等待存档，关闭页面前请确认已保存到本机。` : '历史仅保存在当前浏览器；清理浏览器数据前请导出完整备份。';
   },
   onState(saved) {
