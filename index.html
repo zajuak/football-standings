@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#8b1538">
+  <title>北大足协积分榜生成器</title>
+  <link rel="icon" href="./public/pku-football-logo.png" type="image/png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="./public/pku-football-logo.png" alt="北京大学足球协会" width="48" height="48">
+      <div>
+        <div class="brand-eyebrow">北京大学足球协会</div>
+        <h1>积分榜生成器</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="button button-quiet" id="open-history" type="button">历史与备份</button>
+      <span class="save-status" id="save-status" role="status" aria-live="polite"><span class="status-dot"></span>正在读取本机历史存档</span>
+      <button class="button button-quiet" id="reset-competition" type="button">恢复初始数据</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="editor-column" aria-label="积分榜编辑区">
+      <section class="panel competition-panel">
+        <div class="section-heading">
+          <span class="step">01</span>
+          <div><h2>选择赛事</h2><p>两项赛事分别保存，切换不会丢失数据</p></div>
+        </div>
+        <div class="competition-switch" role="group" aria-label="选择赛事">
+          <button type="button" data-competition="men-freshman-cup" class="competition-option">
+            <span class="competition-name">男足新生杯</span><span class="competition-subtitle">小组赛积分榜</span>
+          </button>
+          <button type="button" data-competition="women-pku-cup" class="competition-option">
+            <span class="competition-name">女足北大杯</span><span class="competition-subtitle">常规赛积分榜</span>
+          </button>
+        </div>
+        <div class="field-grid settings-fields">
+          <label class="field field-full"><span>榜单标题</span><input id="competition-title" type="text" maxlength="60" autocomplete="off"></label>
+          <label class="field"><span>榜单日期</span><input id="competition-date" type="date"></label>
+          <div class="field stats-summary"><span>当前数据</span><strong id="competition-summary">18 支球队 · 0 场新增赛果</strong></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <span class="step">02</span>
+          <div><h2>录入本轮赛果</h2><p>保存赛果后，积分与排名自动更新</p></div>
+        </div>
+        <form id="match-form">
+          <div class="edit-banner" id="edit-banner" hidden>
+            <div><strong>正在修改赛果</strong><span id="edit-match-label"></span></div>
+            <button type="button" id="cancel-edit">取消修改</button>
+          </div>
+          <label class="field"><span>所属小组</span><select id="match-group"></select></label>
+          <div class="match-entry">
+            <label class="field team-field"><span>球队一</span><select id="home-team" required></select></label>
+            <div class="score-field"><label for="home-score">比分</label><input id="home-score" type="number" min="0" max="99" step="1" inputmode="numeric" placeholder="0" required></div>
+            <span class="score-separator">:</span>
+            <div class="score-field"><label for="away-score">比分</label><input id="away-score" type="number" min="0" max="99" step="1" inputmode="numeric" placeholder="0" required></div>
+            <label class="field team-field"><span>球队二</span><select id="away-team" required></select></label>
+          </div>
+          <div class="cards-entry">
+            <section class="cards-team">
+              <h3 id="home-cards-team">球队一 · 红黄牌</h3>
+              <div class="card-inputs">
+                <label>黄牌<input id="home-yellow" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+                <label>两黄变红<input id="home-second-yellow-red" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+                <label>直接红牌<input id="home-direct-red" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+                <label>黄后直红<input id="home-yellow-direct-red" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+              </div>
+              <p>单场公平竞赛积分 <strong id="home-fair-play">5</strong></p>
+            </section>
+            <section class="cards-team">
+              <h3 id="away-cards-team">球队二 · 红黄牌</h3>
+              <div class="card-inputs">
+                <label>黄牌<input id="away-yellow" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+                <label>两黄变红<input id="away-second-yellow-red" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+                <label>直接红牌<input id="away-direct-red" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+                <label>黄后直红<input id="away-yellow-direct-red" type="number" min="0" max="99" step="1" value="0" inputmode="numeric"></label>
+              </div>
+              <p>单场公平竞赛积分 <strong id="away-fair-play">5</strong></p>
+            </section>
+          </div>
+          <p class="cards-hint">按扣分人次填写：黄牌 −1、两黄变红 −3、直接红牌 −4、黄后直红 −5；同一球员只计一次，积分可以为负数。</p>
+          <p class="form-error" id="form-error" role="alert"></p>
+          <button class="button button-primary button-full" id="add-result" type="submit">录入赛果并更新积分榜</button>
+        </form>
+        <div class="results-heading"><h3>已录入赛果</h3><span id="result-count">0 场</span></div>
+        <div class="results-list" id="results-list"></div>
+      </section>
+
+      <details class="panel team-manager" id="team-manager">
+        <summary>
+          <span class="section-heading"><span class="step">03</span><span><strong>球队与公平竞赛积分</strong><small>积分自动计算，纪律处罚单独录入</small></span></span>
+          <span class="summary-action">展开编辑</span>
+        </summary>
+        <div id="team-management"></div>
+        <button class="button button-secondary button-full" id="add-group" type="button">添加小组</button>
+      </details>
+      <details class="panel history-panel" id="history-panel">
+        <summary><strong>历史提交与备份</strong><span class="summary-action">查看记录</span></summary>
+        <p id="pending-count">历史仅保存在当前浏览器；清理浏览器数据前请导出完整备份。</p>
+        <div class="history-actions">
+          <button class="button button-secondary" id="retry-sync" type="button">重试保存</button>
+          <button class="button button-secondary" id="refresh-history" type="button">刷新历史</button>
+          <button class="button button-secondary" id="export-current" type="button">导出当前数据</button>
+          <button class="button button-secondary" id="export-history" type="button">导出完整历史</button>
+          <label class="button button-secondary">导入数据<input id="import-data" type="file" accept=".json,application/json" hidden></label>
+        </div>
+        <div id="history-list" aria-live="polite"></div>
+        <button class="button button-secondary" id="more-history" type="button" hidden>更早记录</button>
+      </details>
+    </aside>
+
+    <section class="preview-column" aria-label="积分榜预览区">
+      <div class="preview-toolbar">
+        <div><h2>积分榜预览</h2><p>A4 竖版 · 与 Word 版式一致</p></div>
+        <div class="export-actions">
+          <button class="button button-secondary" id="download-svg" type="button">导出 SVG</button>
+          <button class="button button-export" id="download-png" type="button">导出高清 PNG</button>
+        </div>
+      </div>
+      <div class="preview-stage">
+        <div class="poster" id="poster" aria-label="积分榜图片预览"></div>
+      </div>
+      <div class="preview-notes">
+        <span>排序规则</span>
+        <p>两队同分先比相互比赛积分；三队及以上先比相关球队间积分、净胜球、进球数，再比总净胜球、总进球和公平竞赛积分。</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

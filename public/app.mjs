@@ -3,7 +3,7 @@ import {
   formatFairPlay, getActiveCompetition, getMatchFairPlay, isValidState, migrateState, updateResult,
 } from './core.mjs';
 import { buildPoster, escapeXml } from './poster.mjs';
-import { HistorySync, SYNC_KEY } from './sync.mjs';
+import { LocalHistory, LOCAL_QUEUE_KEY as SYNC_KEY } from './local-history.mjs';
 import { validSnapshot } from './snapshot.mjs';
 
 const $ = id => document.getElementById(id);
@@ -18,7 +18,7 @@ const elements = {
 
 function loadState() {
   try {
-    const pending = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null')?.queue?.at(-1)?.state;
+    const pending = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null')?.at(-1)?.state;
     const saved = pending ?? JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     const currentRevision = saved?.revision === 2 || saved?.revision === 3;
     if (isValidState(saved) && currentRevision && saved.competitions.some(item => item.id === saved.activeCompetitionId)) {
@@ -41,19 +41,17 @@ function competition() {
   return getActiveCompetition(state);
 }
 
-const sync = new HistorySync({
+const sync = new LocalHistory({
   storage: { getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) },
   onStatus(message, error = false) {
     elements.saveStatus.classList.toggle('is-error', error);
     elements.saveStatus.replaceChildren();
     const dot = document.createElement('span'); dot.className = 'status-dot';
     elements.saveStatus.append(dot, document.createTextNode(message));
-    $('sync-conflict').hidden = !sync.conflict;
-    if (sync.conflict) $('history-panel').open = true;
-    $('pending-count').textContent = sync.queue.length ? `本机还有 ${sync.queue.length} 次提交等待同步，关闭页面前请确认已保存到云端。` : '每次提交独立存档；删除、重置和恢复操作均保留旧版本。';
+    $('pending-count').textContent = sync.queue.length ? `本机还有 ${sync.queue.length} 次提交等待存档，关闭页面前请确认已保存到本机。` : '历史仅保存在当前浏览器；清理浏览器数据前请导出完整备份。';
   },
   onState(saved) {
-    if (!validSnapshot(saved)) throw new Error('云端数据格式异常，请先导出备份');
+    if (!validSnapshot(saved)) throw new Error('本机历史数据格式异常，请先导出备份');
     state = migrateState(saved);
     cancelEdit(); renderAll(true);
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
@@ -346,7 +344,7 @@ elements.matchForm.addEventListener('submit', event => {
     elements.formError.textContent = '';
     save(wasEditing ? '修改比赛赛果' : '录入比赛赛果');
     renderAll();
-    toast(wasEditing ? '赛果修改已加入保存队列' : '赛果已更新，正在保存到云端');
+    toast(wasEditing ? '赛果修改已加入保存队列' : '赛果已更新，正在保存到本机');
   } catch (error) {
     elements.formError.textContent = error.message;
   }
@@ -512,17 +510,8 @@ window.addEventListener('beforeunload', event => {
 });
 $('retry-sync').addEventListener('click', async () => {
   await sync.retry(state);
-  if (!sync.queue.length) toast('云端已连接，数据已同步');
+  if (!sync.queue.length) toast('本机历史存档已完成');
 });
-for (const [id, useLocal] of [['use-cloud', false], ['use-local', true]]) {
-  $(id).addEventListener('click', async () => {
-    const main = document.querySelector('main'); main.inert = true;
-    try { await sync.resolve(useLocal); renderAll(true); }
-    catch (error) { toast(error.message); }
-    finally { main.inert = false; }
-  });
-}
-
 $('open-history').addEventListener('click', () => { $('history-panel').open = true; $('history-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 let historyCursor = null;
 async function showHistory(append = false) {
@@ -531,7 +520,7 @@ async function showHistory(append = false) {
   try {
     const page = await sync.request(`?history=1${append && historyCursor ? `&before=${historyCursor}` : ''}`);
     if (!append) list.replaceChildren();
-    if (!page.items.length && !append) list.textContent = '暂无云端历史记录。';
+    if (!page.items.length && !append) list.textContent = '暂无本机历史记录。';
     for (const item of page.items) {
       const row = document.createElement('div'); row.className = 'history-item';
       const label = document.createElement('span');
@@ -539,7 +528,7 @@ async function showHistory(append = false) {
       const time = document.createElement('small'); time.textContent = new Date(item.created_at).toLocaleString('zh-CN', { hour12: false });
       const restore = document.createElement('button'); restore.type = 'button'; restore.className = 'button button-secondary'; restore.textContent = '恢复此版本';
       restore.addEventListener('click', async () => {
-        if (sync.queue.length) { toast('请先同步当前修改或处理冲突'); return; }
+        if (sync.queue.length) { toast('请先等待当前修改保存完成'); return; }
         restore.disabled = true;
         try {
           const record = await sync.request(`?revision=${item.revision}`);
@@ -573,7 +562,7 @@ $('export-history').addEventListener('click', async () => {
     } while (before);
     const backup = { format: 'pku-football-history-v1', exportedAt: new Date().toISOString(), state, pending: sync.queue, items };
     download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), '积分榜完整历史.json');
-    toast(`已导出 ${items.length} 条历史及 ${sync.queue.length} 条待同步提交`);
+    toast(`已导出 ${items.length} 条历史及 ${sync.queue.length} 条待存档提交`);
   } catch (error) { toast(`完整历史导出失败：${error.message}，可先导出当前数据`); }
   finally { button.disabled = false; }
 });
@@ -582,9 +571,12 @@ $('import-data').addEventListener('change', async event => {
   try {
     const value = JSON.parse(await file.text()); const imported = value.state ?? value;
     if (!validSnapshot(imported)) throw new Error('请选择积分榜导出的 JSON 数据文件');
-    if (!confirm('用备份数据更新当前积分榜？现有云端版本将继续保留。')) return;
+    const records = [...(value.items ?? []).slice().reverse(), ...(value.pending ?? [])];
+    if (!records.every(record => validSnapshot(record.state))) throw new Error('备份中的历史数据格式不正确');
+    if (!confirm(`导入当前数据${records.length ? `及 ${records.length} 条历史记录` : ''}？本机已有版本会继续保留。`)) return;
+    await sync.importHistory(records);
     state = migrateState(imported); cancelEdit(); renderAll(true); save('导入本机 JSON 备份');
-    toast('备份已载入，正在保存到云端');
+    toast('备份已载入，正在保存到本机');
   } catch (error) { toast(error.message); }
   finally { event.target.value = ''; }
 });
