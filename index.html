@@ -18,6 +18,8 @@
       </div>
     </div>
     <div class="header-actions">
+      <span class="permission-status" id="permission-status">只读模式</span>
+      <button class="button button-quiet" id="auth-button" type="button">口令登录</button>
       <button class="button button-quiet" id="refresh-cloud" type="button">刷新 / 重试同步</button>
       <button class="button button-quiet" id="open-history" type="button">历史与备份</button>
       <span class="save-status" id="save-status" role="status" aria-live="polite"><span class="status-dot"></span>正在读取云端数据</span>
@@ -27,6 +29,7 @@
 
   <main class="workspace">
     <aside class="editor-column" aria-label="积分榜编辑区">
+      <div class="readonly-banner" id="readonly-banner">当前为只读模式，可查看和导出积分榜。点击右上角“口令登录”后可修改数据。</div>
       <section class="panel competition-panel">
         <div class="section-heading">
           <span class="step">01</span>
@@ -153,6 +156,18 @@
     </section>
   </main>
 
+  <dialog class="login-dialog" id="login-dialog" aria-labelledby="login-title">
+    <form id="login-form">
+      <h2 id="login-title">编辑口令登录</h2>
+      <p>登录后可修改赛事、赛果和球队数据。登录状态仅在当前标签页会话中有效。</p>
+      <label class="field"><span>编辑口令</span><input id="passcode-input" type="password" autocomplete="current-password" required autofocus></label>
+      <p class="login-error" id="login-error" role="alert"></p>
+      <div class="login-actions">
+        <button class="button button-secondary" id="cancel-login" type="button">取消</button>
+        <button class="button button-primary" id="submit-login" type="submit">登录并编辑</button>
+      </div>
+    </form>
+  </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.mjs"></script>
 </body>

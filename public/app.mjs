@@ -7,6 +7,8 @@ import { validSnapshot } from './snapshot.mjs';
 import { CloudSync } from './cloud-sync.mjs';
 
 const VIEW_KEY = 'pku-football-active-competition-v1';
+const AUTH_KEY = 'pku-football-editor-authenticated-v1';
+const PASSCODE_SHA256 = '5c165cb2e7df0bfc1a090fad2e6e1fcd32f76b2d0eff4727ffa3e8db71e6a9a0';
 const $ = id => document.getElementById(id);
 const elements = {
   saveStatus: $('save-status'), title: $('competition-title'), date: $('competition-date'),
@@ -36,6 +38,8 @@ let toastTimer;
 let editingMatchId = null;
 let cardsTouched = { home: false, away: false };
 let previewMode = 'groups';
+let editorAuthenticated = false;
+try { editorAuthenticated = sessionStorage.getItem(AUTH_KEY) === '1'; } catch {}
 
 function competition() {
   return getActiveCompetition(state);
@@ -43,6 +47,7 @@ function competition() {
 
 let saveTimer;
 let cloudLoaded = false;
+let cloudActionRunning = false;
 function cacheState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); localStorage.setItem(VIEW_KEY, state.activeCompetitionId); } catch {}
 }
@@ -69,10 +74,13 @@ const cloud = new CloudSync({
   },
 });
 function save(action = '修改赛事设置') {
+  if (!editorAuthenticated) return false;
   clearTimeout(saveTimer); saveTimer = null;
   cloud.enqueue(state, action); cacheState();
+  return true;
 }
 function scheduleSave() {
+  if (!editorAuthenticated) return;
   clearTimeout(saveTimer); cacheState();
   saveTimer = setTimeout(() => save(), 500);
 }
@@ -86,6 +94,34 @@ function toast(message) {
 
 function option(value, label, selected = false) {
   return `<option value="${escapeXml(value)}"${selected ? ' selected' : ''}>${escapeXml(label)}</option>`;
+}
+
+async function isCorrectPasscode(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  const hash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  return hash === PASSCODE_SHA256;
+}
+
+function updatePermissions() {
+  document.body.classList.toggle('is-read-only', !editorAuthenticated);
+  $('permission-status').textContent = editorAuthenticated ? '可编辑' : '只读模式';
+  $('permission-status').classList.toggle('is-editor', editorAuthenticated);
+  $('auth-button').textContent = editorAuthenticated ? '退出编辑' : '口令登录';
+  $('auth-button').disabled = cloudActionRunning;
+  $('readonly-banner').hidden = editorAuthenticated;
+  $('team-manager').querySelector('.summary-action').textContent = editorAuthenticated ? '展开编辑' : '查看球队';
+  for (const control of [elements.title, elements.date, $('add-competition'), $('add-group'), $('import-data'), $('cloud-keep'), $('cloud-read')]) {
+    control.disabled = !editorAuthenticated;
+  }
+  for (const form of [elements.matchForm, $('new-competition-form')]) {
+    for (const control of form.elements) control.disabled = !editorAuthenticated;
+  }
+  if (editorAuthenticated) renderMatchTeams();
+  for (const control of elements.teamManagement.querySelectorAll('input, button')) control.disabled = !editorAuthenticated;
+  for (const control of elements.resultsList.querySelectorAll('button')) control.disabled = !editorAuthenticated;
+  for (const control of document.querySelectorAll('[data-restore-history]')) control.disabled = !editorAuthenticated;
+  $('import-data').closest('label').classList.toggle('is-disabled', !editorAuthenticated);
+  $('reset-competition').disabled = !editorAuthenticated || !cloudLoaded || cloudActionRunning;
 }
 
 function renderPreview() {
@@ -163,8 +199,7 @@ function renderResults() {
     if (!selectedGroup || !home || !away) return '';
     return `<div class="result-item">
       <span class="result-group">${escapeXml(selectedGroup.name)}</span>
-      <div class="result-teams"><span>${escapeXml(home.name)}</span><span>${escapeXml(away.name)}</span></div>
-      <strong class="result-score">${match.homeScore} : ${match.awayScore}</strong>
+      <div class="result-teams"><span class="result-team-home" title="${escapeXml(home.name)}">${escapeXml(home.name)}</span><strong class="result-score">${match.homeScore} : ${match.awayScore}</strong><span class="result-team-away" title="${escapeXml(away.name)}">${escapeXml(away.name)}</span></div>
       <div class="result-actions">
         <button class="result-edit" type="button" data-edit-match="${escapeXml(match.id)}" title="修改该场赛果" aria-label="修改 ${escapeXml(home.name)} 对 ${escapeXml(away.name)} 的赛果">修改</button>
         <button class="icon-button" type="button" data-delete-match="${escapeXml(match.id)}" title="删除该场赛果" aria-label="删除 ${escapeXml(home.name)} 对 ${escapeXml(away.name)} 的赛果">×</button>
@@ -203,6 +238,7 @@ function renderAll(resetTeams = false) {
   renderResults();
   renderManagement();
   renderPreview();
+  updatePermissions();
 }
 
 function findTeam(teamId) {
@@ -302,6 +338,49 @@ function exportName(extension) {
   return `${name}${suffix}.${extension}`;
 }
 
+$('auth-button').addEventListener('click', () => {
+  if (cloudActionRunning) return;
+  if (editorAuthenticated) {
+    if (saveTimer) save();
+    editorAuthenticated = false;
+    try { sessionStorage.removeItem(AUTH_KEY); } catch {}
+    cancelEdit();
+    $('new-competition-form').reset(); $('new-competition-form').hidden = true;
+    updatePermissions();
+    toast('已退出编辑，当前为只读模式');
+    return;
+  }
+  $('login-form').reset();
+  $('login-error').textContent = '';
+  $('login-dialog').showModal();
+  $('passcode-input').focus();
+});
+$('cancel-login').addEventListener('click', () => $('login-dialog').close());
+$('login-dialog').addEventListener('close', () => { $('passcode-input').value = ''; });
+$('login-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const submit = $('submit-login');
+  submit.disabled = true;
+  try {
+    const correct = await isCorrectPasscode($('passcode-input').value);
+    if (!$('login-dialog').open) return;
+    if (!correct) {
+      $('login-error').textContent = '口令不正确，请重新输入。';
+      $('passcode-input').select();
+      return;
+    }
+    editorAuthenticated = true;
+    try { sessionStorage.setItem(AUTH_KEY, '1'); } catch {}
+    $('login-dialog').close();
+    updatePermissions();
+    toast('登录成功，现在可以修改积分榜');
+  } catch (error) {
+    $('login-error').textContent = '无法完成口令校验，请使用支持 HTTPS 的现代浏览器重试。';
+  } finally {
+    submit.disabled = false;
+  }
+});
+
 $('competition-list').addEventListener('click', event => {
   const button = event.target.closest('[data-competition]');
   if (!button || button.dataset.competition === state.activeCompetitionId) return;
@@ -310,11 +389,13 @@ $('competition-list').addEventListener('click', event => {
   elements.formError.textContent = ''; cancelEdit(); cacheState(); renderAll(true);
 });
 $('add-competition').addEventListener('click', () => {
+  if (!editorAuthenticated) return;
   $('new-competition-form').hidden = false; $('new-competition-name').focus();
 });
 $('cancel-new-competition').addEventListener('click', () => { $('new-competition-form').hidden = true; });
 $('new-competition-form').addEventListener('submit', event => {
   event.preventDefault();
+  if (!editorAuthenticated) return;
   try {
     const current = createCompetition({ name: $('new-competition-name').value, format: $('new-competition-format').value, date: new Date().toLocaleDateString('en-CA') });
     state.competitions.push(current); state.activeCompetitionId = current.id;
@@ -325,11 +406,13 @@ $('new-competition-form').addEventListener('submit', event => {
 });
 
 elements.title.addEventListener('input', () => {
+  if (!editorAuthenticated) return;
   competition().title = elements.title.value;
   scheduleSave();
   renderPreview();
 });
 elements.date.addEventListener('input', () => {
+  if (!editorAuthenticated) return;
   competition().date = elements.date.value;
   scheduleSave();
   renderPreview();
@@ -355,6 +438,7 @@ $('cancel-edit').addEventListener('click', cancelEdit);
 
 elements.matchForm.addEventListener('submit', event => {
   event.preventDefault();
+  if (!editorAuthenticated) return;
   try {
     const values = {
       groupId: elements.matchGroup.value,
@@ -386,6 +470,7 @@ elements.matchForm.addEventListener('submit', event => {
 });
 
 elements.resultsList.addEventListener('click', event => {
+  if (!editorAuthenticated) return;
   const editButton = event.target.closest('[data-edit-match]');
   if (editButton) {
     startEdit(editButton.dataset.editMatch);
@@ -402,6 +487,7 @@ elements.resultsList.addEventListener('click', event => {
 });
 
 elements.teamManagement.addEventListener('input', event => {
+  if (!editorAuthenticated) return;
   const input = event.target;
   if (input.dataset.teamName) {
     const { team } = findTeam(input.dataset.teamName);
@@ -433,6 +519,7 @@ elements.teamManagement.addEventListener('change', event => {
 });
 
 elements.teamManagement.addEventListener('click', event => {
+  if (!editorAuthenticated) return;
   const addButton = event.target.closest('[data-add-team]');
   const deleteButton = event.target.closest('[data-delete-team]');
   const groupButton = event.target.closest('[data-delete-group]');
@@ -478,6 +565,7 @@ elements.teamManagement.addEventListener('click', event => {
 });
 
 $('add-group').addEventListener('click', () => {
+  if (!editorAuthenticated) return;
   const current = competition();
   const index = current.groups.length;
   const name = index < 26 ? `${String.fromCharCode(65 + index)}组` : `G${index + 1}组`;
@@ -487,6 +575,7 @@ $('add-group').addEventListener('click', () => {
 });
 
 $('reset-competition').addEventListener('click', () => {
+  if (!editorAuthenticated) return;
   const current = competition();
   if (!confirm(`确定将“${current.shortName}”恢复为初始数据吗？当前积分榜会恢复为初始数据，已有提交仍保留在历史记录中。`)) return;
   const initial = resetCompetition(current);
@@ -549,8 +638,8 @@ async function retrySync() {
   if (saveTimer) save();
   const loaded = await cloud.retry(state);
   if (loaded) cloudLoaded = true;
-  document.querySelector('main').inert = !cloudLoaded;
-  $('reset-competition').disabled = !cloudLoaded;
+  document.querySelector('main').inert = !cloudLoaded || cloudActionRunning;
+  updatePermissions();
 }
 void retrySync();
 function canRefresh() {
@@ -590,7 +679,10 @@ async function showHistory(append = false) {
       label.textContent = `版本 ${item.revision} · ${item.action}${item.applied ? '' : '（历史存档）'}`;
       const time = document.createElement('small'); time.textContent = new Date(item.created_at).toLocaleString('zh-CN', { hour12: false });
       const restore = document.createElement('button'); restore.type = 'button'; restore.className = 'button button-secondary'; restore.textContent = '恢复此版本';
+      restore.dataset.restoreHistory = String(item.revision);
+      restore.disabled = !editorAuthenticated;
       restore.addEventListener('click', async () => {
+        if (!editorAuthenticated) return;
         if (saveTimer || cloud.queue.length) { toast('请先等待当前修改保存完成'); return; }
         restore.disabled = true;
         try {
@@ -603,7 +695,7 @@ async function showHistory(append = false) {
           await cloud.flush(); await showHistory();
           });
         } catch (error) { toast(error.message); }
-        finally { restore.disabled = false; }
+        finally { restore.disabled = !editorAuthenticated; }
       });
       const description = document.createElement('div'); description.append(label, time); row.append(description, restore); list.append(row);
     }
@@ -632,6 +724,7 @@ $('export-history').addEventListener('click', async () => {
   finally { button.disabled = false; }
 });
 $('import-data').addEventListener('change', async event => {
+  if (!editorAuthenticated) return;
   const file = event.target.files[0]; if (!file) return;
   try {
     const value = JSON.parse(await file.text()); const imported = value.state ?? value;
@@ -651,11 +744,14 @@ $('import-data').addEventListener('change', async event => {
 });
 
 async function cloudAction(action) {
+  if (!editorAuthenticated) throw new Error('请先输入口令登录后再修改数据');
+  if (cloudActionRunning) throw new Error('请等待当前数据操作完成');
+  cloudActionRunning = true; updatePermissions();
   const main = document.querySelector('main');
   main.inert = true; $('reset-competition').disabled = true;
   try { await action(); }
   catch (error) { $('cloud-status').textContent = error.message; toast(error.message); throw error; }
-  finally { main.inert = !cloudLoaded; $('reset-competition').disabled = false; }
+  finally { cloudActionRunning = false; main.inert = !cloudLoaded; updatePermissions(); }
 }
 for (const [id, local] of [['cloud-keep', true], ['cloud-read', false]]) {
   $(id).addEventListener('click', () => { void cloudAction(async () => {
