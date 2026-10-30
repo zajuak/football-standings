@@ -105,6 +105,7 @@
       <section class="panel history-panel" id="cloud-panel">
         <strong>云端自动同步</strong>
         <p id="cloud-status" role="status" aria-live="polite">正在连接云端…</p>
+        <p><a href="https://football-standings-api.junkaizhao404.workers.dev/health" target="_blank" rel="noopener noreferrer">检查云端接口连通性</a>：若此链接也打不开，请更换可访问的网络后重试。</p>
         <p>打开页面自动读取最新数据；仅内容变化时保存。离线修改会等待联网补传。</p>
         <div id="cloud-conflict" class="sync-conflict" hidden>
           <p>其他页面已有更新。你的修改已归档，请选择继续使用的版本。</p>
@@ -135,12 +136,20 @@
           <button class="button button-export" id="download-png" type="button">导出高清 PNG</button>
         </div>
       </div>
+      <div class="preview-view-controls" id="preview-view-controls">
+        <div class="preview-view-switch" role="group" aria-label="积分榜图片类型">
+          <button class="is-active" type="button" data-preview-mode="groups" aria-pressed="true">小组积分榜</button>
+          <button type="button" data-preview-mode="cross-group" aria-pressed="false">组间晋级比较</button>
+        </div>
+        <label class="cross-position-field" id="cross-position-field" hidden><span>比较名次</span><select id="cross-group-position"></select></label>
+      </div>
+      <p class="comparison-hint" id="comparison-hint" hidden>各小组都添加球队后，即可比较相同名次的球队。</p>
       <div class="preview-stage">
         <div class="poster" id="poster" aria-label="积分榜图片预览"></div>
       </div>
       <div class="preview-notes">
         <span>排序规则</span>
-        <p>两队同分先比相互比赛积分；三队及以上先比相关球队间积分、净胜球、进球数，再比总净胜球、总进球和公平竞赛积分。</p>
+        <div><p>两队同分先比相互比赛积分；三队及以上先比相关球队间积分、净胜球、进球数，再比总净胜球、总进球和公平竞赛积分。</p><p>组间比较按积分、净胜球、进球数、公平竞赛积分排序；小组人数不等时，较多球队小组剔除与本组末位的比赛成绩，公平竞赛积分不剔除。</p></div>
       </div>
     </section>
   </main>

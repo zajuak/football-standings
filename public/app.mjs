@@ -35,6 +35,8 @@ let currentPoster;
 let toastTimer;
 let editingMatchId = null;
 let cardsTouched = { home: false, away: false };
+let previewMode = 'groups';
+let crossGroupPosition = 0;
 
 function competition() {
   return getActiveCompetition(state);
@@ -88,7 +90,24 @@ function option(value, label, selected = false) {
 }
 
 function renderPreview() {
-  currentPoster = buildPoster(competition(), logoDataUri);
+  const current = competition();
+  const comparisonAvailable = current.format !== 'league' && current.groups.length > 1;
+  const positionCount = current.groups.length ? Math.min(...current.groups.map(group => group.teams.length)) : 0;
+  if (!comparisonAvailable || !positionCount) previewMode = 'groups';
+  const comparisonButton = document.querySelector('[data-preview-mode="cross-group"]');
+  comparisonButton.disabled = !positionCount;
+  $('comparison-hint').hidden = !comparisonAvailable || positionCount > 0;
+  $('preview-view-controls').hidden = !comparisonAvailable;
+  for (const button of document.querySelectorAll('[data-preview-mode]')) {
+    const active = button.dataset.previewMode === previewMode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  }
+  $('cross-position-field').hidden = previewMode !== 'cross-group';
+  crossGroupPosition = Math.min(crossGroupPosition, Math.max(0, positionCount - 1));
+  $('cross-group-position').innerHTML = Array.from({ length: positionCount }, (_, index) => option(index, `小组第 ${index + 1} 名`)).join('');
+  $('cross-group-position').value = String(crossGroupPosition);
+  currentPoster = buildPoster(current, logoDataUri, { mode: previewMode, position: crossGroupPosition });
   elements.poster.innerHTML = currentPoster.svg;
 }
 
@@ -284,7 +303,8 @@ function download(blob, filename) {
 
 function exportName(extension) {
   const name = competition().title.replace(/[\\/:*?"<>|]/g, '_');
-  return `${name}.${extension}`;
+  const suffix = previewMode === 'cross-group' ? `-小组第${crossGroupPosition + 1}名组间比较` : '';
+  return `${name}${suffix}.${extension}`;
 }
 
 $('competition-list').addEventListener('click', event => {
@@ -481,6 +501,17 @@ $('reset-competition').addEventListener('click', () => {
   save('恢复赛事初始数据');
   renderAll(true);
   toast('当前赛事已恢复，旧数据保留在历史记录中');
+});
+
+for (const button of document.querySelectorAll('[data-preview-mode]')) {
+  button.addEventListener('click', () => {
+    previewMode = button.dataset.previewMode;
+    renderPreview();
+  });
+}
+$('cross-group-position').addEventListener('change', event => {
+  crossGroupPosition = Number(event.target.value) || 0;
+  renderPreview();
 });
 
 $('download-svg').addEventListener('click', () => {

@@ -26,9 +26,22 @@ export class CloudSync {
       this.cacheFailed = false;
     } catch { this.cacheFailed = true; }
   }
+  async send(options = {}, query = '') {
+    // AbortSignal.timeout is absent on older iOS and embedded browsers.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await this.fetcher(`${API}${query}`, { ...options, signal: controller.signal });
+      const body = await readResponse(response);
+      return { response, body };
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error('连接云端超时，请检查云端接口连通性或更换网络');
+      if (error instanceof TypeError) throw new Error('无法访问云端接口，请检查网络是否能打开下方的连通性检查链接');
+      throw error;
+    } finally { clearTimeout(timer); }
+  }
   async request(query = '') {
-    const response = await this.fetcher(`${API}${query}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
-    const body = await readResponse(response);
+    const { response, body } = await this.send({ cache: 'no-store' }, query);
     if (!response.ok) throw new Error(body.error || '无法连接云端存档');
     return body;
   }
@@ -67,7 +80,7 @@ export class CloudSync {
     return true;
   }
   post(item) {
-    return this.fetcher(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item), signal: AbortSignal.timeout(15000) });
+    return this.send({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) });
   }
   async flush() {
     if (this.running || this.conflict || !this.ready) return;
@@ -76,8 +89,7 @@ export class CloudSync {
       while (this.queue.length) {
         const item = this.queue[0];
         item.baseRevision ??= this.revision; this.persist();
-        const response = await this.post(item);
-        const result = await readResponse(response);
+        const { response, body: result } = await this.post(item);
         if (response.status === 409 && result.archived) {
           this.conflict = true; this.onStatus('其他页面有更新 · 本次修改已存入历史，请处理冲突', true); return;
         }
@@ -120,8 +132,7 @@ export class CloudSync {
         const source = item.submission_id ?? item.id ?? JSON.stringify(item);
         const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
         const hash = [...new Uint8Array(bytes)].map(x => x.toString(16).padStart(2, '0')).join('');
-        const response = await this.post({ id: `import-${hash}`, baseRevision: 0, action: `导入历史：${item.action ?? '备份记录'}`.slice(0, 120), state: item.state, createdAt: item.created_at ?? item.createdAt, archiveOnly: true });
-        const result = await readResponse(response);
+        const { response, body: result } = await this.post({ id: `import-${hash}`, baseRevision: 0, action: `导入历史：${item.action ?? '备份记录'}`.slice(0, 120), state: item.state, createdAt: item.created_at ?? item.createdAt, archiveOnly: true });
         if (!response.ok) throw new Error(result.error || '导入历史失败，可重试续传');
       }
     } finally { this.running = false; }
@@ -134,7 +145,7 @@ export class CloudSync {
       // Before resolving, preserve every unsent edit in the cloud history.
       for (const item of this.queue) {
         item.baseRevision ??= this.revision;
-        const response = await this.post({ ...item, archiveOnly: true });
+        const { response } = await this.post({ ...item, archiveOnly: true });
         if (!response.ok) throw new Error('历史存档失败，尚未清除待同步数据');
       }
       const latest = await this.request();

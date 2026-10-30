@@ -230,6 +230,17 @@ test('两项赛事的新增数据相互独立', () => {
   assert.equal(men.matches.length, 17);
 });
 
+test('组间晋级比较使用独立海报并标注末位成绩剔除规则', () => {
+  const competition = menCompetition();
+  const { svg } = buildPoster(competition, '', { mode: 'cross-group', position: 0 });
+  assert.match(svg, /男足组间晋级比较/);
+  assert.match(svg, /小组第 1 名 · 组间晋级比较/);
+  assert.match(svg, /C组 · 光华/);
+  assert.match(svg, /A组 · 信科/);
+  assert.match(svg, /公平竞赛积分保留/);
+  assert.doesNotMatch(svg, />A组<\/text>/);
+});
+
 test('海报使用中文日期并转义可编辑文本', () => {
   const competition = menCompetition();
   competition.title = '测试<积分榜>';
@@ -247,4 +258,36 @@ test('原有赛果直接保存但未修改内容，不产生内容差异', () =>
   const cards = { yellow: 0, secondYellowRed: 0, directRed: 0, yellowDirectRed: 0 };
   current.matches[0] = updateResult(current, match.id, { ...match, homeCards: cards, awayCards: cards });
   assert.equal(contentFingerprint(state), before);
+});
+
+
+test('组间比较只接受各组共同拥有的名次，空组不参与错误比较', () => {
+  const competition = menCompetition();
+  for (const position of [-1, .5, 3, 4, NaN]) assert.deepEqual(calculateCrossGroupStandings(competition, position), []);
+  assert.equal(calculateCrossGroupStandings(competition, 2).length, 5);
+  competition.groups.push({ id: 'empty', name: '空组', teams: [] });
+  assert.deepEqual(calculateCrossGroupStandings(competition, 0), []);
+});
+test('组间排序按积分、净胜球及公平竞赛积分比较，不改变小组数据', () => {
+  const competition = { groups: [
+    { id: 'a', name: 'A组', teams: [team('a1', '甲'), team('a2', '乙')] },
+    { id: 'b', name: 'B组', teams: [team('b1', '丙'), team('b2', '丁')] },
+  ], matches: [
+    { ...result('a1', 'a2', 2, 0), groupId: 'a', homeFairPlay: 2 },
+    { ...result('b1', 'b2', 2, 0), groupId: 'b', homeFairPlay: 5 },
+  ] };
+  const before = structuredClone(competition);
+  assert.deepEqual(calculateCrossGroupStandings(competition).map(row => row.name), ['丙', '甲']);
+  assert.deepEqual(competition, before);
+  competition.matches[0].homeScore = 3;
+  assert.deepEqual(calculateCrossGroupStandings(competition).map(row => row.name), ['甲', '丙']);
+  competition.matches.push({ ...result('b1', 'b2', 0, 0), id: 'draw', groupId: 'b' });
+  assert.deepEqual(calculateCrossGroupStandings(competition).map(row => row.name), ['丙', '甲']);
+});
+test('同人数小组的比较不声称剔除成绩，海报转义组名与队名', () => {
+  const current = menCompetition(); current.groups = current.groups.slice(0,2);
+  current.groups[0].name = '<A组>'; current.groups[0].teams[0].name = '甲<&球队';
+  const { svg } = buildPoster(current, '', { mode: 'cross-group' });
+  assert.match(svg, /各小组球队数量相同，不剔除比赛成绩/);
+  assert.match(svg, /&lt;A组&gt;/); assert.doesNotMatch(svg, /<A组>/);
 });

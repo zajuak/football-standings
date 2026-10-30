@@ -191,3 +191,34 @@ test('刷新请求等待期间发生编辑，不覆盖本机新修改', async ()
   const pending = client.refresh(); client.enqueue(changed('draft'), '编辑'); release(); await pending; await idle(client);
   assert.equal(loaded, 1); assert.equal(client.queue.at(-1).state.competitions[0].title, 'draft');
 });
+
+
+test('不支持 AbortSignal.timeout 的旧版手机浏览器仍能读取并保存云端', async t => {
+  const timeout = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+  Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: undefined });
+  t.after(() => Object.defineProperty(AbortSignal, 'timeout', timeout));
+  const db = database(); const { client } = cloudClient(db);
+  assert.equal(await client.start(createInitialState()), true);
+  client.enqueue(changed('手机修改'), '手机编辑'); await idle(client);
+  assert.equal(client.queue.length, 0); assert.equal((await get(db)).state.competitions[0].title, '手机修改');
+});
+test('接口网络错误显示连通性提示，并保留待同步数据', async () => {
+  let offline = false, status;
+  const client = new CloudSync({ storage: { getItem: () => null, setItem() {} }, onStatus: message => status = message, fetcher: async () => {
+    if (offline) throw new TypeError('Load failed');
+    return Response.json({ revision: 0, state: null });
+  } });
+  await client.start(createInitialState()); offline = true;
+  client.enqueue(changed('离线手机修改'), '手机编辑'); await idle(client);
+  assert.equal(client.queue.length, 1); assert.match(status, /无法访问云端接口/); assert.match(status, /连通性检查/);
+});
+test('网络超时会终止请求并给出可理解的提示', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let status;
+  const client = new CloudSync({ storage: { getItem: () => null, setItem() {} }, onStatus: message => status = message, fetcher: (_, options) => new Promise((resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+  }) });
+  const started = client.start(createInitialState());
+  t.mock.timers.tick(15000);
+  assert.equal(await started, false); assert.equal(client.ready, false); assert.match(status, /连接云端超时/);
+});

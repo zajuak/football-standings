@@ -344,6 +344,7 @@ export function calculateStandings(competition) {
 export function calculateCrossGroupStandings(competition, position = 0) {
   const standings = calculateStandings(competition);
   const minimumTeams = Math.min(...standings.map(selectedGroup => selectedGroup.rows.length));
+  if (!standings.length || !Number.isInteger(position) || position < 0 || position >= minimumTeams) return [];
   return standings.map((selectedGroup, groupIndex) => {
     const source = selectedGroup.rows[position];
     if (!source) return null;
@@ -353,7 +354,7 @@ export function calculateCrossGroupStandings(competition, position = 0) {
       for (const match of competition.matches) {
         const isHome = match.homeId === row.id && match.awayId === excludedId;
         const isAway = match.awayId === row.id && match.homeId === excludedId;
-        if (!isHome && !isAway) continue;
+        if (match.groupId !== selectedGroup.id || (!isHome && !isAway)) continue;
         const goalsFor = isHome ? match.homeScore : match.awayScore;
         const goalsAgainst = isHome ? match.awayScore : match.homeScore;
         row.played -= 1;
