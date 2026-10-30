@@ -18,8 +18,9 @@
       </div>
     </div>
     <div class="header-actions">
+      <button class="button button-quiet" id="refresh-cloud" type="button">刷新 / 重试同步</button>
       <button class="button button-quiet" id="open-history" type="button">历史与备份</button>
-      <span class="save-status" id="save-status" role="status" aria-live="polite"><span class="status-dot"></span>正在读取本机历史存档</span>
+      <span class="save-status" id="save-status" role="status" aria-live="polite"><span class="status-dot"></span>正在读取云端数据</span>
       <button class="button button-quiet" id="reset-competition" type="button">恢复初始数据</button>
     </div>
   </header>
@@ -29,16 +30,15 @@
       <section class="panel competition-panel">
         <div class="section-heading">
           <span class="step">01</span>
-          <div><h2>选择赛事</h2><p>两项赛事分别保存，切换不会丢失数据</p></div>
+          <div><h2>选择赛事</h2><p>赛事数据统一同步到云端，切换不会新增历史</p></div>
         </div>
-        <div class="competition-switch" role="group" aria-label="选择赛事">
-          <button type="button" data-competition="men-freshman-cup" class="competition-option">
-            <span class="competition-name">男足新生杯</span><span class="competition-subtitle">小组赛积分榜</span>
-          </button>
-          <button type="button" data-competition="women-pku-cup" class="competition-option">
-            <span class="competition-name">女足北大杯</span><span class="competition-subtitle">常规赛积分榜</span>
-          </button>
-        </div>
+        <div class="competition-switch" id="competition-list" role="group" aria-label="选择赛事"></div>
+        <button class="button button-secondary button-full" id="add-competition" type="button">+ 新增赛事</button>
+        <form id="new-competition-form" class="new-competition-form" hidden>
+          <label class="field"><span>赛事名称</span><input id="new-competition-name" maxlength="40" required placeholder="例如：2027 年北大杯男足"></label>
+          <label class="field"><span>赛制</span><select id="new-competition-format"><option value="groups">小组赛</option><option value="league">联赛 / 常规赛</option></select></label>
+          <div class="history-actions"><button class="button button-primary" type="submit">创建赛事</button><button class="button button-secondary" id="cancel-new-competition" type="button">取消</button></div>
+        </form>
         <div class="field-grid settings-fields">
           <label class="field field-full"><span>榜单标题</span><input id="competition-title" type="text" maxlength="60" autocomplete="off"></label>
           <label class="field"><span>榜单日期</span><input id="competition-date" type="date"></label>
@@ -102,35 +102,26 @@
         <div id="team-management"></div>
         <button class="button button-secondary button-full" id="add-group" type="button">添加小组</button>
       </details>
-      <details class="panel history-panel" id="cloud-panel">
-        <summary><strong>云端同步</strong><span class="summary-action">连接数据库</span></summary>
-        <p>本机仍保留全部历史。连接后可上传本机记录，或读取其他设备保存的积分榜。</p>
-        <label class="field"><span>同步口令</span><input id="cloud-token" type="password" autocomplete="off" minlength="24" maxlength="256" placeholder="输入你设置的同步口令"></label>
-        <p id="cloud-status" role="status" aria-live="polite">尚未连接云端</p>
-        <div class="history-actions">
-          <button class="button button-secondary" id="cloud-connect" type="button">连接云端</button>
-          <button class="button button-secondary" id="cloud-upload" type="button">上传本机全部历史</button>
-          <button class="button button-secondary" id="cloud-load" type="button">读取云端最新数据</button>
-          <button class="button button-secondary" id="cloud-retry" type="button">重试同步</button>
-          <button class="button button-secondary" id="cloud-disconnect" type="button">断开连接</button>
-        </div>
+      <section class="panel history-panel" id="cloud-panel">
+        <strong>云端自动同步</strong>
+        <p id="cloud-status" role="status" aria-live="polite">正在连接云端…</p>
+        <p>打开页面自动读取最新数据；仅内容变化时保存。离线修改会等待联网补传。</p>
         <div id="cloud-conflict" class="sync-conflict" hidden>
-          <p>其他设备已更新。你的提交已归档，请选择继续使用的版本。</p>
-          <button class="button button-secondary" id="cloud-keep" type="button">应用本机版本</button>
-          <button class="button button-secondary" id="cloud-read" type="button">使用云端版本</button>
+          <p>其他页面已有更新。你的修改已归档，请选择继续使用的版本。</p>
+          <button class="button button-secondary" id="cloud-keep" type="button">应用本机修改</button>
+          <button class="button button-secondary" id="cloud-read" type="button">使用云端最新版本</button>
         </div>
-      </details>
+      </section>
       <details class="panel history-panel" id="history-panel">
         <summary><strong>历史提交与备份</strong><span class="summary-action">查看记录</span></summary>
-        <p id="pending-count">历史仅保存在当前浏览器；清理浏览器数据前请导出完整备份。</p>
+        <p id="pending-count">所有已同步修改保存在云端，支持查看、恢复和导出。</p>
         <div class="history-actions">
-          <button class="button button-secondary" id="retry-sync" type="button">重试保存</button>
+          <button class="button button-secondary" id="retry-sync" type="button">重试同步</button>
           <button class="button button-secondary" id="refresh-history" type="button">刷新历史</button>
           <button class="button button-secondary" id="export-current" type="button">导出当前数据</button>
           <button class="button button-secondary" id="export-history" type="button">导出完整历史</button>
           <label class="button button-secondary">导入数据<input id="import-data" type="file" accept=".json,application/json" hidden></label>
         </div>
-        <label class="field"><span>查看和导出的历史来源</span><select id="history-source"><option value="local">本机历史</option><option value="cloud">云端历史（需要连接）</option></select></label>
         <div id="history-list" aria-live="polite"></div>
         <button class="button button-secondary" id="more-history" type="button" hidden>更早记录</button>
       </details>

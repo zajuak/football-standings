@@ -1,5 +1,6 @@
 import { validSnapshot } from '../public/snapshot.mjs';
 export { validSnapshot } from '../public/snapshot.mjs';
+import { contentFingerprint } from '../public/state-content.mjs';
 
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'cache-control': 'no-store' } });
 
@@ -34,15 +35,32 @@ export async function handleRecords(request, db) {
     const data = JSON.parse(text);
     if (!data || typeof data !== 'object' || typeof data.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(data.id) || !Number.isSafeInteger(data.baseRevision) || data.baseRevision < 0 || typeof data.action !== 'string' || data.action.length > 120 || !validSnapshot(data.state)) return json({ error: '提交的数据格式不正确。' }, 400);
     const state = JSON.stringify(data.state);
-    // A single SQL statement checks the current revision and appends the immutable snapshot atomically.
-    // Conflicts are archived as well, without replacing the current standings.
-    await db.prepare(`INSERT INTO submissions (submission_id, base_revision, action, state, applied, created_at)
-      SELECT ?, ?, ?, ?, CASE WHEN ? = 0 AND COALESCE((SELECT MAX(revision) FROM submissions WHERE applied = 1), 0) = ? THEN 1 ELSE 0 END, ?
-      ON CONFLICT(submission_id) DO NOTHING`).bind(data.id, data.baseRevision, data.action, state, data.archiveOnly ? 1 : 0, data.baseRevision, (typeof data.createdAt === 'string' && data.createdAt.length <= 35 && Number.isFinite(Date.parse(data.createdAt)) ? new Date(data.createdAt).toISOString() : new Date().toISOString())).run();
+    const content = contentFingerprint(data.state);
+    const previous = await db.prepare('SELECT * FROM submissions WHERE submission_id = ?').bind(data.id).first();
+    if (previous) {
+      if (contentFingerprint(JSON.parse(previous.state)) !== content || previous.base_revision !== data.baseRevision || previous.action !== data.action) return json({ error: '提交编号已用于其他数据。' }, 409);
+      const latest = await db.prepare('SELECT revision FROM submissions WHERE applied = 1 ORDER BY revision DESC LIMIT 1').first();
+      return json({ revision: previous.revision, currentRevision: latest?.revision ?? 0, applied: Boolean(previous.applied), archived: true }, previous.applied || data.archiveOnly ? 200 : 409);
+    }
+    const current = await db.prepare('SELECT revision, state FROM submissions WHERE applied = 1 ORDER BY revision DESC LIMIT 1').first();
+    if (!data.archiveOnly && current && contentFingerprint(JSON.parse(current.state)) === content) {
+      return json({ revision: current.revision, currentRevision: current.revision, applied: true, unchanged: true, archived: false });
+    }
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+    const hash = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    // The SQL comparison also covers simultaneous identical requests: only the
+    // first one creates a snapshot. Conflicting different content stays archived.
+    await db.prepare(`INSERT INTO submissions (submission_id, base_revision, action, state, applied, created_at, content_hash)
+      SELECT ?, ?, ?, ?, CASE WHEN ? = 0 AND COALESCE((SELECT MAX(revision) FROM submissions WHERE applied = 1), 0) = ? THEN 1 ELSE 0 END, ?, ?
+      WHERE ? = 1 OR COALESCE((SELECT content_hash FROM submissions WHERE applied = 1 ORDER BY revision DESC LIMIT 1), '') != ?
+      ON CONFLICT(submission_id) DO NOTHING`).bind(data.id, data.baseRevision, data.action, state, data.archiveOnly ? 1 : 0, data.baseRevision,
+        (typeof data.createdAt === 'string' && data.createdAt.length <= 35 && Number.isFinite(Date.parse(data.createdAt)) ? new Date(data.createdAt).toISOString() : new Date().toISOString()), hash, data.archiveOnly ? 1 : 0, hash).run();
     const saved = await db.prepare('SELECT * FROM submissions WHERE submission_id = ?').bind(data.id).first();
-    if (saved.state !== state || saved.base_revision !== data.baseRevision || saved.action !== data.action) return json({ error: '提交编号已用于其他数据。' }, 409);
     const latest = await db.prepare('SELECT revision FROM submissions WHERE applied = 1 ORDER BY revision DESC LIMIT 1').first();
+    if (!saved) return json({ revision: latest.revision, currentRevision: latest.revision, applied: true, unchanged: true, archived: false });
+    if (contentFingerprint(JSON.parse(saved.state)) !== content || saved.base_revision !== data.baseRevision || saved.action !== data.action) return json({ error: '提交编号已用于其他数据。' }, 409);
     return json({ revision: saved.revision, currentRevision: latest?.revision ?? 0, applied: Boolean(saved.applied), archived: true }, saved.applied || data.archiveOnly ? 200 : 409);
+
   } catch (error) {
     if (error instanceof SyntaxError) return json({ error: 'JSON 数据格式不正确。' }, 400);
     console.error('积分榜存档失败', error);

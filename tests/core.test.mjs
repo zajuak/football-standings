@@ -5,6 +5,7 @@ import {
   createInitialState, createResult, formatChineseDate, formatFairPlay, getActiveCompetition,
   getMatchFairPlay, migrateState, updateResult,
 } from '../public/core.mjs';
+import { contentFingerprint } from '../public/state-content.mjs';
 import { buildPoster } from '../public/poster.mjs';
 
 const zero = () => ({ played: 0, wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0 });
@@ -51,7 +52,7 @@ test('旧版本数据升级时补充女足新球队并保留已有修改', () =>
   women.groups[0].teams = women.groups[0].teams.filter(item => !['women-gongshu', 'women-guoguang'].includes(item.id));
   state.revision = 2;
   migrateState(state);
-  assert.equal(state.revision, 3);
+  assert.equal(state.revision, 4);
   assert.equal(women.title, '已修改的女足标题');
   assert.equal(women.matches.length, 3);
   assert.deepEqual(women.groups[0].teams.slice(-2).map(item => item.name), ['工数', '国光']);
@@ -238,4 +239,12 @@ test('海报使用中文日期并转义可编辑文本', () => {
   assert.match(svg, /测试&lt;积分榜&gt;/);
   assert.match(svg, /2026年10月29日/);
   assert.equal(formatChineseDate('2026-01-05'), '2026年1月5日');
+});
+
+test('原有赛果直接保存但未修改内容，不产生内容差异', () => {
+  const state = createInitialState(), current = state.competitions[0], match = current.matches[0];
+  const before = contentFingerprint(state);
+  const cards = { yellow: 0, secondYellowRed: 0, directRed: 0, yellowDirectRed: 0 };
+  current.matches[0] = updateResult(current, match.id, { ...match, homeCards: cards, awayCards: cards });
+  assert.equal(contentFingerprint(state), before);
 });

@@ -221,3 +221,8 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   .header-actions { width: 100%; justify-content: flex-start; }
   .save-status { display: inline-flex; order: 3; flex-basis: 100%; max-width: none; }
 }
+
+#add-competition { margin-top: 10px; }
+.new-competition-form { margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fafbfd; }
+.new-competition-form .field { margin-bottom: 12px; }
+.competition-option { min-width: 0; overflow-wrap: anywhere; }

@@ -1,12 +1,12 @@
 import {
-  STORAGE_KEY, calculateMatchFairPlay, calculateStandings, createId, createInitialState, createResult,
+  STORAGE_KEY, calculateMatchFairPlay, calculateStandings, createId, createInitialState, createResult, createCompetition, resetCompetition,
   formatFairPlay, getActiveCompetition, getMatchFairPlay, isValidState, migrateState, updateResult,
 } from './core.mjs';
 import { buildPoster, escapeXml } from './poster.mjs';
-import { LocalHistory, LOCAL_QUEUE_KEY as SYNC_KEY } from './local-history.mjs';
 import { validSnapshot } from './snapshot.mjs';
 import { CloudSync } from './cloud-sync.mjs';
 
+const VIEW_KEY = 'pku-football-active-competition-v1';
 const $ = id => document.getElementById(id);
 const elements = {
   saveStatus: $('save-status'), title: $('competition-title'), date: $('competition-date'),
@@ -19,10 +19,8 @@ const elements = {
 
 function loadState() {
   try {
-    const pending = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null')?.at(-1)?.state;
-    const saved = pending ?? JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    const currentRevision = saved?.revision === 2 || saved?.revision === 3;
-    if (isValidState(saved) && currentRevision && saved.competitions.some(item => item.id === saved.activeCompetitionId)) {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (validSnapshot(saved)) {
       return migrateState(saved);
     }
   } catch (error) {
@@ -42,39 +40,40 @@ function competition() {
   return getActiveCompetition(state);
 }
 
-const sync = new LocalHistory({
-  storage: { getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) },
-  onStatus(message, error = false) {
-    elements.saveStatus.classList.toggle('is-error', error);
-    elements.saveStatus.replaceChildren();
-    const dot = document.createElement('span'); dot.className = 'status-dot';
-    elements.saveStatus.append(dot, document.createTextNode(message));
-    if (!error && !sync.queue.length && $('history-panel').open) void showHistory();
-    $('pending-count').textContent = sync.queue.length ? `本机还有 ${sync.queue.length} 次提交等待存档，关闭页面前请确认已保存到本机。` : '历史仅保存在当前浏览器；清理浏览器数据前请导出完整备份。';
-  },
-  onState(saved) {
-    if (!validSnapshot(saved)) throw new Error('本机历史数据格式异常，请先导出备份');
-    state = migrateState(saved);
-    cancelEdit(); renderAll(true);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-  },
-});
-
+let saveTimer;
+let cloudLoaded = false;
+function cacheState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); localStorage.setItem(VIEW_KEY, state.activeCompetitionId); } catch {}
+}
+function useCloudState(saved) {
+  if (!validSnapshot(saved)) throw new Error('云端数据格式不正确');
+  let preferred = state.activeCompetitionId;
+  try { preferred = localStorage.getItem(VIEW_KEY) ?? preferred; } catch {}
+  state = migrateState(structuredClone(saved));
+  if (state.competitions.some(item => item.id === preferred)) state.activeCompetitionId = preferred;
+  cancelEdit(); renderAll(true); cacheState();
+}
 const cloud = new CloudSync({
   storage: { getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) },
+  onState: useCloudState,
+  canApplyState: () => canRefresh(),
   onStatus(message, error = false) {
+    elements.saveStatus.classList.toggle('is-error', error);
+    elements.saveStatus.textContent = message;
     $('cloud-status').textContent = message;
     $('cloud-status').classList.toggle('is-error', error);
     $('cloud-conflict').hidden = !cloud.conflict;
-    if (error || cloud.conflict) $('cloud-panel').open = true;
-    if (!error && !cloud.queue.length && $('history-panel').open && $('history-source').value === 'cloud') void showHistory();
+    $('pending-count').textContent = cloud.queue.length ? `还有 ${cloud.queue.length} 次修改待同步，请保持页面打开或导出备份。` : '所有已同步修改保存在云端，支持查看、恢复和导出。';
+    if (!error && !cloud.queue.length && $('history-panel').open) void showHistory();
   },
 });
-
 function save(action = '修改赛事设置') {
-  sync.enqueue(state, action);
-  if (cloud.ready && cloud.selected) cloud.enqueue(state, action);
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  clearTimeout(saveTimer); saveTimer = null;
+  cloud.enqueue(state, action); cacheState();
+}
+function scheduleSave() {
+  clearTimeout(saveTimer); cacheState();
+  saveTimer = setTimeout(() => save(), 500);
 }
 
 function toast(message) {
@@ -95,11 +94,7 @@ function renderPreview() {
 
 function renderCompetition() {
   const current = competition();
-  document.querySelectorAll('[data-competition]').forEach(button => {
-    const active = button.dataset.competition === current.id;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-pressed', String(active));
-  });
+  $('competition-list').innerHTML = state.competitions.map(item => `<button class="competition-option${item.id === current.id ? ' is-active' : ''}" type="button" data-competition="${escapeXml(item.id)}" aria-pressed="${item.id === current.id}"><span class="competition-name">${escapeXml(item.shortName)}</span><span class="competition-subtitle">${item.format === 'league' ? '联赛 / 常规赛' : '小组赛'}</span></button>`).join('');
   elements.title.value = current.title;
   elements.date.value = current.date;
   const teamCount = current.groups.reduce((total, selectedGroup) => total + selectedGroup.teams.length, 0);
@@ -118,7 +113,7 @@ function renderMatchTeams(reset = false) {
     ? teams.map(item => option(item.id, item.name)).join('')
     : '<option value="">请先添加球队</option>';
   elements.homeTeam.value = teams.some(item => item.id === previousHome) ? previousHome : (teams[0]?.id ?? '');
-  elements.awayTeam.value = teams.some(item => item.id === previousAway) ? previousAway : (teams[1]?.id ?? teams[0]?.id ?? '');
+  elements.awayTeam.value = teams.some(item => item.id === previousAway && item.id !== elements.homeTeam.value) ? previousAway : (teams.find(item => item.id !== elements.homeTeam.value)?.id ?? teams[0]?.id ?? '');
   $('home-cards-team').textContent = `${teams.find(item => item.id === elements.homeTeam.value)?.name ?? '球队一'} · 红黄牌`;
   $('away-cards-team').textContent = `${teams.find(item => item.id === elements.awayTeam.value)?.name ?? '球队二'} · 红黄牌`;
   elements.homeTeam.disabled = teams.length < 2;
@@ -144,7 +139,7 @@ function renderResults() {
   const current = competition();
   elements.resultCount.textContent = `${current.matches.length} 场`;
   if (!current.matches.length) {
-    elements.resultsList.innerHTML = '<div class="empty-results">尚未录入新赛果，当前显示 Word 中的初始数据</div>';
+    elements.resultsList.innerHTML = '<div class="empty-results">尚未录入赛果，可在下方管理球队后录入</div>';
     return;
   }
   elements.resultsList.innerHTML = current.matches.slice().reverse().map(match => {
@@ -292,25 +287,36 @@ function exportName(extension) {
   return `${name}.${extension}`;
 }
 
-for (const button of document.querySelectorAll('[data-competition]')) {
-  button.addEventListener('click', () => {
-    if (button.dataset.competition === state.activeCompetitionId) return;
-    state.activeCompetitionId = button.dataset.competition;
-    elements.formError.textContent = '';
-    cancelEdit();
-    save('切换赛事');
-    renderAll(true);
-  });
-}
+$('competition-list').addEventListener('click', event => {
+  const button = event.target.closest('[data-competition]');
+  if (!button || button.dataset.competition === state.activeCompetitionId) return;
+  if (saveTimer) save();
+  state.activeCompetitionId = button.dataset.competition;
+  elements.formError.textContent = ''; cancelEdit(); cacheState(); renderAll(true);
+});
+$('add-competition').addEventListener('click', () => {
+  $('new-competition-form').hidden = false; $('new-competition-name').focus();
+});
+$('cancel-new-competition').addEventListener('click', () => { $('new-competition-form').hidden = true; });
+$('new-competition-form').addEventListener('submit', event => {
+  event.preventDefault();
+  try {
+    const current = createCompetition({ name: $('new-competition-name').value, format: $('new-competition-format').value, date: new Date().toLocaleDateString('en-CA') });
+    state.competitions.push(current); state.activeCompetitionId = current.id;
+    cancelEdit(); save('新增赛事'); renderAll(true);
+    $('new-competition-form').reset(); $('new-competition-form').hidden = true;
+    $('team-manager').open = true; toast('赛事已创建，请添加球队');
+  } catch (error) { toast(error.message); }
+});
 
 elements.title.addEventListener('input', () => {
   competition().title = elements.title.value;
-  save();
+  scheduleSave();
   renderPreview();
 });
 elements.date.addEventListener('input', () => {
   competition().date = elements.date.value;
-  save();
+  scheduleSave();
   renderPreview();
 });
 elements.matchGroup.addEventListener('change', () => {
@@ -358,7 +364,7 @@ elements.matchForm.addEventListener('submit', event => {
     elements.formError.textContent = '';
     save(wasEditing ? '修改比赛赛果' : '录入比赛赛果');
     renderAll();
-    toast(wasEditing ? '赛果修改已加入保存队列' : '赛果已更新，正在保存到本机');
+    toast(wasEditing ? '赛果修改已加入保存队列' : '赛果已更新，正在同步云端');
   } catch (error) {
     elements.formError.textContent = error.message;
   }
@@ -400,7 +406,7 @@ elements.teamManagement.addEventListener('input', event => {
     const selectedGroup = competition().groups.find(item => item.id === input.dataset.groupName);
     if (selectedGroup) selectedGroup.name = input.value;
   } else return;
-  save();
+  scheduleSave();
   renderPreview();
 });
 
@@ -468,7 +474,7 @@ $('add-group').addEventListener('click', () => {
 $('reset-competition').addEventListener('click', () => {
   const current = competition();
   if (!confirm(`确定将“${current.shortName}”恢复为初始数据吗？当前积分榜会恢复为初始数据，已有提交仍保留在历史记录中。`)) return;
-  const initial = createInitialState().competitions.find(item => item.id === current.id);
+  const initial = resetCompetition(current);
   const index = state.competitions.findIndex(item => item.id === current.id);
   state.competitions[index] = initial;
   cancelEdit();
@@ -516,31 +522,47 @@ elements.downloadPng.addEventListener('click', async () => {
 });
 
 renderAll(true);
-void sync.init(state);
-window.addEventListener('online', () => { void sync.retry(state); if (cloud.ready) void cloud.retry(); });
-setInterval(() => { if (sync.queue.length) void sync.retry(state); if (cloud.ready && cloud.queue.length && !cloud.conflict) void cloud.retry(); }, 15000);
+document.querySelector('main').inert = true;
+$('reset-competition').disabled = true;
+async function retrySync() {
+  if (saveTimer) save();
+  const loaded = await cloud.retry(state);
+  if (loaded) cloudLoaded = true;
+  document.querySelector('main').inert = !cloudLoaded;
+  $('reset-competition').disabled = !cloudLoaded;
+}
+void retrySync();
+function canRefresh() {
+  return cloudLoaded && !saveTimer && !editingMatchId && !elements.homeScore.value && !elements.awayScore.value &&
+    !document.activeElement?.matches('input, select, textarea') &&
+    ![...document.querySelectorAll('.card-inputs input')].some(input => Number(input.value));
+}
+window.addEventListener('online', () => { void retrySync(); });
+setInterval(() => {
+  if (!cloudLoaded || cloud.queue.length) void retrySync();
+  else if (canRefresh()) void cloud.refresh();
+}, 15000);
+window.addEventListener('focus', () => { if (canRefresh()) void cloud.refresh(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && canRefresh()) void cloud.refresh(); });
 window.addEventListener('beforeunload', event => {
-  if (sync.queue.length || cloud.queue.length) { event.preventDefault(); event.returnValue = ''; }
+  if (saveTimer) save();
+  if (cloud.queue.length) { event.preventDefault(); event.returnValue = ''; }
 });
-$('retry-sync').addEventListener('click', async () => {
-  await sync.retry(state);
-  if (!sync.queue.length) toast('本机历史存档已完成');
-});
+$('retry-sync').addEventListener('click', () => { void retrySync(); });
+$('refresh-cloud').addEventListener('click', () => { if (cloud.queue.length || !cloudLoaded || canRefresh()) void retrySync(); else toast('请先完成当前录入，再刷新云端数据'); });
 $('open-history').addEventListener('click', () => { $('history-panel').open = true; $('history-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
 let historyCursor = null;
 function historySource() {
-  if ($('history-source').value !== 'cloud') return sync;
-  if (!cloud.ready) throw new Error('请先连接云端');
+  if (!cloud.ready) throw new Error('正在连接云端，请稍后重试');
   return cloud;
 }
-$('history-source').addEventListener('change', () => { void showHistory(); });
 async function showHistory(append = false) {
   const list = $('history-list');
   const button = $('more-history'); button.disabled = true;
   try {
     const page = await historySource().request(`?history=1${append && historyCursor ? `&before=${historyCursor}` : ''}`);
     if (!append) list.replaceChildren();
-    if (!page.items.length && !append) list.textContent = '暂无本机历史记录。';
+    if (!page.items.length && !append) list.textContent = '暂无云端历史记录。';
     for (const item of page.items) {
       const row = document.createElement('div'); row.className = 'history-item';
       const label = document.createElement('span');
@@ -548,16 +570,17 @@ async function showHistory(append = false) {
       const time = document.createElement('small'); time.textContent = new Date(item.created_at).toLocaleString('zh-CN', { hour12: false });
       const restore = document.createElement('button'); restore.type = 'button'; restore.className = 'button button-secondary'; restore.textContent = '恢复此版本';
       restore.addEventListener('click', async () => {
-        if (sync.queue.length) { toast('请先等待当前修改保存完成'); return; }
+        if (saveTimer || cloud.queue.length) { toast('请先等待当前修改保存完成'); return; }
         restore.disabled = true;
         try {
+          await cloudAction(async () => {
           const record = await historySource().request(`?revision=${item.revision}`);
           if (!isValidState(record.state)) throw new Error('历史数据格式异常');
           if (!confirm(`恢复到版本 ${item.revision}？当前版本也会继续保留在历史中。`)) return;
-          state = migrateState(record.state); cancelEdit(); renderAll(true);
-          if ($('history-source').value === 'cloud') cloud.selected = true;
+          useCloudState(record.state);
           save(`恢复历史版本 ${item.revision}`);
-          await sync.flush(); await showHistory();
+          await cloud.flush(); await showHistory();
+          });
         } catch (error) { toast(error.message); }
         finally { restore.disabled = false; }
       });
@@ -581,9 +604,9 @@ $('export-history').addEventListener('click', async () => {
       const page = await historySource().request(`?history=1&full=1${before ? `&before=${before}` : ''}`);
       items.push(...page.items); before = page.next;
     } while (before);
-    const backup = { format: 'pku-football-history-v1', exportedAt: new Date().toISOString(), state, pending: [...sync.queue, ...cloud.queue], items };
+    const backup = { format: 'pku-football-history-v1', exportedAt: new Date().toISOString(), state, pending: cloud.queue, items };
     download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), '积分榜完整历史.json');
-    toast(`已导出 ${items.length} 条历史及 ${sync.queue.length + cloud.queue.length} 条待存档提交`);
+    toast(`已导出 ${items.length} 条历史及 ${cloud.queue.length} 条待存档提交`);
   } catch (error) { toast(`完整历史导出失败：${error.message}，可先导出当前数据`); }
   finally { button.disabled = false; }
 });
@@ -594,10 +617,14 @@ $('import-data').addEventListener('change', async event => {
     if (!validSnapshot(imported)) throw new Error('请选择积分榜导出的 JSON 数据文件');
     const records = [...(value.items ?? []).slice().reverse(), ...(value.pending ?? [])];
     if (!records.every(record => validSnapshot(record.state))) throw new Error('备份中的历史数据格式不正确');
-    if (!confirm(`导入当前数据${records.length ? `及 ${records.length} 条历史记录` : ''}？本机已有版本会继续保留。`)) return;
-    await sync.importHistory(records);
-    state = migrateState(imported); cancelEdit(); renderAll(true); save('导入本机 JSON 备份');
-    toast('备份已载入，正在保存到本机');
+    if (!confirm(`导入当前数据${records.length ? `及 ${records.length} 条历史记录` : ''}？云端已有版本会继续保留。`)) return;
+    await cloudAction(async () => {
+      if (saveTimer) save();
+      await cloud.flush();
+      await cloud.archiveRecords(records);
+      useCloudState(imported); save('导入 JSON 备份');
+    });
+    toast('备份已载入，正在同步云端');
   } catch (error) { toast(error.message); }
   finally { event.target.value = ''; }
 });
@@ -606,48 +633,13 @@ async function cloudAction(action) {
   const main = document.querySelector('main');
   main.inert = true; $('reset-competition').disabled = true;
   try { await action(); }
-  catch (error) { $('cloud-status').textContent = error.message; toast(error.message); }
-  finally { main.inert = false; $('reset-competition').disabled = false; }
+  catch (error) { $('cloud-status').textContent = error.message; toast(error.message); throw error; }
+  finally { main.inert = !cloudLoaded; $('reset-competition').disabled = false; }
 }
-function useCloudState(saved) {
-  if (!validSnapshot(saved)) throw new Error('云端数据格式不正确');
-  state = migrateState(saved); cancelEdit(); renderAll(true);
-  sync.enqueue(state, '读取云端积分榜');
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-}
-$('cloud-connect').addEventListener('click', () => { void cloudAction(async () => {
-  const token = $('cloud-token').value.trim();
-  if (token.length < 24) throw new Error('同步口令至少需要 24 位');
-  await cloud.connect(token);
-}); });
-$('cloud-upload').addEventListener('click', () => { void cloudAction(async () => {
-  if (!cloud.ready) throw new Error('请先输入口令并连接云端');
-  if (sync.running || sync.queue.length) throw new Error('请先等待本机数据保存完成');
-  if (!confirm('上传本机全部历史，并将本机当前积分榜设为云端最新版本？已有云端历史会继续保留。')) return;
-  const records = []; let before = null;
-  do {
-    const page = await sync.request(`?history=1&full=1${before ? `&before=${before}` : ''}`);
-    records.push(...page.items); before = page.next;
-  } while (before);
-  await cloud.migrate(records.reverse(), state);
-}); });
-$('cloud-load').addEventListener('click', () => { void cloudAction(async () => {
-  if (!cloud.ready) throw new Error('请先连接云端');
-  if (cloud.queue.length) throw new Error('请先完成同步或处理冲突');
-  const latest = await cloud.request();
-  if (!latest.state) throw new Error('云端暂无数据，请先上传本机历史');
-  if (!confirm('读取云端最新积分榜？当前本机版本会保留在本机历史中。')) return;
-  useCloudState(latest.state); cloud.revision = latest.revision; cloud.selected = true; cloud.persist();
-  $('cloud-status').textContent = `已读取云端版本 ${latest.revision} · 后续修改自动同步`;
-}); });
-$('cloud-retry').addEventListener('click', () => { void cloudAction(async () => {
-  if (!cloud.ready) throw new Error('请先连接云端'); await cloud.retry();
-}); });
-$('cloud-disconnect').addEventListener('click', () => { cloud.disconnect(); $('cloud-token').value = ''; });
 for (const [id, local] of [['cloud-keep', true], ['cloud-read', false]]) {
   $(id).addEventListener('click', () => { void cloudAction(async () => {
-    await cloud.resolve(local, useCloudState); renderAll(true);
-  }); });
+    if (saveTimer) save(); await cloud.resolve(local); renderAll(true);
+  }).catch(() => {}); });
 }
 
 fetch('./public/pku-football-logo.png')

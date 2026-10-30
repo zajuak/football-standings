@@ -48,7 +48,7 @@ function createMenMatches() {
 
 function createMenCompetition() {
   return {
-    id: 'men-freshman-cup',
+    id: 'men-freshman-cup', format: 'groups',
     shortName: '男足新生杯',
     title: '2026年北京大学“新生杯”男足小组赛积分榜',
     date: '2026-10-29',
@@ -88,7 +88,7 @@ function createMenCompetition() {
 
 function createWomenCompetition() {
   return {
-    id: 'women-pku-cup',
+    id: 'women-pku-cup', format: 'league',
     shortName: '女足北大杯',
     title: '2026年北京大学“北大杯”女足常规赛积分榜',
     date: '2026-10-29',
@@ -113,26 +113,47 @@ function createWomenCompetition() {
 export function createInitialState() {
   return {
     version: 1,
-    revision: 3,
+    revision: 4,
     activeCompetitionId: 'men-freshman-cup',
     competitions: [createMenCompetition(), createWomenCompetition()],
   };
 }
 
 export function migrateState(state) {
-  if (state.revision !== 2) return state;
-  const regular = state.competitions.find(item => item.id === 'women-pku-cup')
-    ?.groups.find(item => item.id === 'women-regular');
-  if (regular) {
-    const initialTeams = createWomenCompetition().groups[0].teams;
-    for (const id of ['women-gongshu', 'women-guoguang']) {
-      if (!regular.teams.some(item => item.id === id)) {
-        regular.teams.push(initialTeams.find(item => item.id === id));
+  if (state.revision === 2) {
+    const regular = state.competitions.find(item => item.id === 'women-pku-cup')
+      ?.groups.find(item => item.id === 'women-regular');
+    if (regular) {
+      const initialTeams = createWomenCompetition().groups[0].teams;
+      for (const id of ['women-gongshu', 'women-guoguang']) {
+        if (!regular.teams.some(item => item.id === id)) regular.teams.push(initialTeams.find(item => item.id === id));
       }
     }
   }
-  state.revision = 3;
+  for (const item of state.competitions) item.format ??= item.groups.length > 1 ? 'groups' : 'league';
+  state.revision = 4;
   return state;
+}
+
+export function createCompetition({ name, format = 'groups', date = '' }) {
+  name = String(name ?? '').trim();
+  if (!name || name.length > 40) throw new Error('赛事名称须为 1–40 个字。');
+  if (!['groups', 'league'].includes(format)) throw new Error('请选择赛制。');
+  return {
+    id: createId('competition'), shortName: name, title: `${name}积分榜`, date, format,
+    groups: [{ id: createId('group'), name: format === 'league' ? '常规赛' : 'A组', teams: [] }], matches: [],
+  };
+}
+
+export function resetCompetition(current) {
+  const initial = createInitialState().competitions.find(item => item.id === current.id);
+  if (initial) return migrateState({ version: 1, revision: 4, competitions: [initial] }).competitions[0];
+  return {
+    ...structuredClone(current), matches: [],
+    groups: current.groups.map(group => ({ ...group, teams: group.teams.map(team => ({
+      ...team, base: emptyStats(), fairPlay: 5, disciplineDeduction: 0, drawOrder: null,
+    })) })),
+  };
 }
 
 export function getActiveCompetition(state) {
@@ -201,12 +222,15 @@ export function createResult(competition, { groupId, homeId, awayId, homeScore, 
 export function updateResult(competition, matchId, values) {
   const existing = competition.matches.find(match => match.id === matchId);
   if (!existing) throw new Error('未找到要修改的赛果，请刷新后重试。');
-  return {
-    ...createResult(competition, values),
-    id: existing.id,
-    round: existing.round,
-    createdAt: existing.createdAt,
+  const updated = {
+    ...createResult(competition, values), id: existing.id,
+    round: existing.round, createdAt: existing.createdAt,
   };
+  // Seed matches only record aggregate fair play, not individual card counts.
+  for (const side of ['home', 'away']) {
+    if (existing[`${side}Cards`] == null && Number.isFinite(existing[`${side}FairPlay`]) && updated[`${side}FairPlay`] === existing[`${side}FairPlay`]) delete updated[`${side}Cards`];
+  }
+  return updated;
 }
 
 function relatedStats(teamId, relatedIds, matches) {

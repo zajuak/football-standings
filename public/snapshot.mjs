@@ -1,11 +1,11 @@
 import { isValidState } from './core.mjs';
 function checkSnapshot(state) {
-  if (!isValidState(state) || ![2, 3].includes(state.revision) || state.competitions.length !== 2) return false;
+  if (!isValidState(state) || ![2, 3, 4].includes(state.revision)) return false;
   if (!state.competitions.some(c => c.id === state.activeCompetitionId)) return false;
   const unique = values => new Set(values).size === values.length;
   if (!unique(state.competitions.map(c => c.id))) return false;
   return state.competitions.every(c => {
-    if (!['men-freshman-cup', 'women-pku-cup'].includes(c.id) || typeof c.shortName !== 'string' || typeof c.date !== 'string' || !c.groups.length) return false;
+    if (!c.id || c.id.length > 100 || (c.format != null && !['groups', 'league'].includes(c.format)) || typeof c.shortName !== 'string' || typeof c.date !== 'string' || !c.groups.length) return false;
     if (!unique(c.groups.map(g => g.id)) || !unique(c.groups.flatMap(g => g.teams?.map(t => t.id) ?? [])) || !unique(c.matches.map(m => m.id))) return false;
     return c.groups.every(g => typeof g.id === 'string' && typeof g.name === 'string' && Array.isArray(g.teams) && g.teams.every(t =>
       typeof t.id === 'string' && typeof t.name === 'string' && t.base &&
