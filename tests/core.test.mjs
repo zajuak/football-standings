@@ -230,11 +230,17 @@ test('两项赛事的新增数据相互独立', () => {
   assert.equal(men.matches.length, 17);
 });
 
-test('组间晋级比较使用独立海报并标注末位成绩剔除规则', () => {
+test('全部共同名次的组间比较合并为一张表并只说明一次剔除规则', () => {
   const competition = menCompetition();
-  const { svg } = buildPoster(competition, '', { mode: 'cross-group', position: 0 });
+  const { svg } = buildPoster(competition, '', { mode: 'cross-group' });
   assert.match(svg, /男足组间晋级比较/);
-  assert.match(svg, /小组第 1 名 · 组间晋级比较/);
+  for (const rank of [1, 2, 3]) assert.match(svg, new RegExp(`小组第 ${rank} 名 · 组间晋级比较`));
+  assert.doesNotMatch(svg, /小组第 4 名/);
+  assert.equal((svg.match(/公平竞赛积分保留/g) ?? []).length, 1);
+  assert.equal((svg.match(/>排序<\/text>/g) ?? []).length, 1);
+  for (const label of ['C组 · 光华', 'E组 · 化学', 'A组 · 元培']) assert.match(svg, new RegExp(label));
+  assert.ok(svg.indexOf('小组第 1 名') < svg.indexOf('小组第 2 名'));
+  assert.ok(svg.indexOf('小组第 2 名') < svg.indexOf('小组第 3 名'));
   assert.match(svg, /C组 · 光华/);
   assert.match(svg, /A组 · 信科/);
   assert.match(svg, /公平竞赛积分保留/);

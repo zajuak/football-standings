@@ -23,16 +23,20 @@ function cell(x, y, width, height, fill) {
   return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" stroke="#c8cdd4" stroke-width="1.5"/>`;
 }
 
-export function buildPoster(competition, logoDataUri = '', { mode = 'groups', position = 0 } = {}) {
+export function buildPoster(competition, logoDataUri = '', { mode = 'groups' } = {}) {
   const standings = calculateStandings(competition);
-  const comparing = mode === 'cross-group' && standings.length > 1;
   const groupSizes = standings.map(group => group.rows.length);
+  const positionCount = standings.length ? Math.min(...groupSizes) : 0;
+  const comparing = mode === 'cross-group' && standings.length > 1 && positionCount > 0;
   const uneven = new Set(groupSizes).size > 1;
-  const sections = comparing ? [{
+  const comparisonNote = uneven
+    ? '较多球队小组已剔除与本组最后一名比赛的全部成绩；公平竞赛积分保留。'
+    : '各小组球队数量相同，不剔除比赛成绩；公平竞赛积分保留。';
+  const sections = comparing ? Array.from({ length: positionCount }, (_, position) => ({
     name: `小组第 ${position + 1} 名 · 组间晋级比较`,
-    note: uneven ? '较多球队小组已剔除与本组最后一名比赛的全部成绩；公平竞赛积分保留。' : '各小组球队数量相同，不剔除比赛成绩；公平竞赛积分保留。',
+    note: position === 0 ? comparisonNote : null,
     rows: calculateCrossGroupStandings(competition, position).map(row => ({ ...row, name: `${row.groupName} · ${row.name}` })),
-  }] : standings;
+  })) : standings;
   const tableHeight = 58 + sections.reduce((total, section) => total + (section.note ? 68 : 50) + section.rows.length * 52, 0);
   const tableY = 154;
   const tableBottom = tableY + tableHeight;

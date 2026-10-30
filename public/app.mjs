@@ -36,7 +36,6 @@ let toastTimer;
 let editingMatchId = null;
 let cardsTouched = { home: false, away: false };
 let previewMode = 'groups';
-let crossGroupPosition = 0;
 
 function competition() {
   return getActiveCompetition(state);
@@ -103,11 +102,7 @@ function renderPreview() {
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-pressed', String(active));
   }
-  $('cross-position-field').hidden = previewMode !== 'cross-group';
-  crossGroupPosition = Math.min(crossGroupPosition, Math.max(0, positionCount - 1));
-  $('cross-group-position').innerHTML = Array.from({ length: positionCount }, (_, index) => option(index, `小组第 ${index + 1} 名`)).join('');
-  $('cross-group-position').value = String(crossGroupPosition);
-  currentPoster = buildPoster(current, logoDataUri, { mode: previewMode, position: crossGroupPosition });
+  currentPoster = buildPoster(current, logoDataUri, { mode: previewMode });
   elements.poster.innerHTML = currentPoster.svg;
 }
 
@@ -303,7 +298,7 @@ function download(blob, filename) {
 
 function exportName(extension) {
   const name = competition().title.replace(/[\\/:*?"<>|]/g, '_');
-  const suffix = previewMode === 'cross-group' ? `-小组第${crossGroupPosition + 1}名组间比较` : '';
+  const suffix = previewMode === 'cross-group' ? '-组间晋级比较' : '';
   return `${name}${suffix}.${extension}`;
 }
 
@@ -509,11 +504,6 @@ for (const button of document.querySelectorAll('[data-preview-mode]')) {
     renderPreview();
   });
 }
-$('cross-group-position').addEventListener('change', event => {
-  crossGroupPosition = Number(event.target.value) || 0;
-  renderPreview();
-});
-
 $('download-svg').addEventListener('click', () => {
   download(new Blob([currentPoster.svg], { type: 'image/svg+xml;charset=utf-8' }), exportName('svg'));
   toast('SVG 图片已导出');
