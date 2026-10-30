@@ -37,6 +37,8 @@ npm run dev
 - `cloudflare/`：Worker API、D1 迁移及部署说明
 - `tests/`：积分、云端同步、去重、冲突与旧版历史兼容测试
 
+构建时按源码内容给入口、样式及全部模块依赖添加统一资源版本，避免升级后新页面混用浏览器缓存的旧脚本。
+
 推送 `main` 后 GitHub Actions 自动测试并发布前端；后端部署见 [cloudflare/README.md](cloudflare/README.md)。`scripts/copy-editor.mjs` 用于原维护目录的源文件同步；独立克隆时直接修改仓库中的文件即可。
 
 ## 手机同步排查
