@@ -99,7 +99,7 @@ function createWomenCompetition() {
       team('women-yuanpei', '元培', emptyStats()),
       team('women-chengxinkao', '城新考', emptyStats()),
       team('women-zhongliwai', '中历外', emptyStats()),
-      team('women-gongshu', '工数', emptyStats()),
+      team('women-gongshu', '工数经', emptyStats()),
       team('women-guoguang', '国光', emptyStats()),
     ])],
     matches: [

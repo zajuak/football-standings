@@ -41,7 +41,7 @@ test('女足初始数据包含 8 支球队和第二周 3 场赛果', () => {
   const standings = calculateStandings(competition);
   assert.equal(competition.matches.length, 3);
   assert.deepEqual(standings[0].rows.map(row => [row.name, row.points]), [
-    ['医学', 3], ['中历外', 3], ['理叉地', 1], ['政信社', 1], ['工数', 0], ['国光', 0], ['城新考', 0], ['元培', 0],
+    ['医学', 3], ['中历外', 3], ['理叉地', 1], ['政信社', 1], ['工数经', 0], ['国光', 0], ['城新考', 0], ['元培', 0],
   ]);
 });
 
@@ -55,7 +55,7 @@ test('旧版本数据升级时补充女足新球队并保留已有修改', () =>
   assert.equal(state.revision, 4);
   assert.equal(women.title, '已修改的女足标题');
   assert.equal(women.matches.length, 3);
-  assert.deepEqual(women.groups[0].teams.slice(-2).map(item => item.name), ['工数', '国光']);
+  assert.deepEqual(women.groups[0].teams.slice(-2).map(item => item.name), ['工数经', '国光']);
   women.groups[0].teams = women.groups[0].teams.filter(item => item.id !== 'women-gongshu');
   migrateState(state);
   assert.equal(women.groups[0].teams.length, 7);
