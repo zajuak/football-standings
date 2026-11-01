@@ -222,3 +222,37 @@ test('网络超时会终止请求并给出可理解的提示', async t => {
   t.mock.timers.tick(15000);
   assert.equal(await started, false); assert.equal(client.ready, false); assert.match(status, /连接云端超时/);
 });
+
+test('历史合并忽略浏览偏好并兼容旧记录，保留原始导出和 A→B→A 的真实变化', async () => {
+  const db = database();
+  const old = createInitialState(); old.revision = 3; old.competitions.forEach(c => delete c.format);
+  await db.prepare('INSERT INTO submissions (submission_id,base_revision,action,state,applied,created_at) VALUES (?,?,?,?,?,?)').bind('legacy',0,'旧版本',JSON.stringify(old),1,'2026-10-29T10:00:00Z').run();
+  const same = createInitialState(); same.activeCompetitionId = same.competitions[1].id;
+  await post(db, { ...submit('archived-copy',0,same), archiveOnly: true });
+  await post(db, submit('B',1,changed('实际变化')));
+  await post(db, submit('back-to-A',3,createInitialState()));
+  const history = await get(db, '?history=1&distinct=1');
+  assert.deepEqual(history.items.map(item => item.revision), [4,3,2]);
+  assert.equal(history.items[2].duplicateCount, 1);
+  assert.equal((await get(db, '?history=1&full=1')).items.length, 4);
+  assert.deepEqual((await get(db, '?revision=1')).state, old);
+});
+test('历史合并跨原始批次和分页边界不漏项，也不重复展示相同内容', async () => {
+  const db = database();
+  // The newest page ends with a long identical run crossing multiple SQL batches.
+  for (let i = 0; i < 120; i++) {
+    await post(db, { ...submit(`duplicate-${i}`,0,changed('最早的一组')), archiveOnly: true });
+  }
+  for (let i = 0; i < 51; i++) {
+    await post(db, { ...submit(`distinct-${i}`,0,changed(`内容${i}`)), archiveOnly: true });
+  }
+  const first = await get(db, '?history=1&distinct=1');
+  assert.equal(first.items.length, 50); assert.equal(first.next, 122);
+  const second = await get(db, `?history=1&distinct=1&before=${first.next}`);
+  assert.deepEqual(second.items.map(item => item.revision), [121,120]);
+  assert.equal(second.items[1].duplicateCount, 119); assert.equal(second.next, null);
+  // Place the identical run at the page boundary to exercise the anchor hash.
+  const boundary = await get(db, '?history=1&distinct=1&before=120');
+  assert.deepEqual(boundary.items, []); assert.equal(boundary.next, null);
+  const raw = await get(db, '?history=1&full=1'); assert.equal(raw.items.length, 50);
+});

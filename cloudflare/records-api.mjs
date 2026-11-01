@@ -1,6 +1,7 @@
 import { validSnapshot } from '../public/snapshot.mjs';
 export { validSnapshot } from '../public/snapshot.mjs';
 import { contentFingerprint } from '../public/state-content.mjs';
+import { distinctHistory } from './history.mjs';
 
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'cache-control': 'no-store' } });
 
@@ -14,6 +15,7 @@ export async function handleRecords(request, db) {
         const before = raw == null ? Number.MAX_SAFE_INTEGER : Number(raw);
         if (!Number.isSafeInteger(before) || before < 1) return json({ error: '无效的历史游标。' }, 400);
         const full = url.searchParams.has('full');
+        if (url.searchParams.has('distinct')) return json(await distinctHistory(db, before, full));
         const fields = full ? '*' : 'revision, submission_id, base_revision, action, applied, created_at';
         const { results } = await db.prepare(`SELECT ${fields} FROM submissions WHERE revision < ? ORDER BY revision DESC LIMIT 50`).bind(before).all();
         const items = results.map(r => ({ ...r, ...(full ? { state: JSON.parse(r.state) } : {}) }));
