@@ -1,10 +1,9 @@
-import { contentFingerprint } from '../public/state-content.mjs';
+import { contentHash, CONTENT_HASH_PREFIX } from '../public/state-content.mjs';
 
 async function recordHash(row) {
-  if (row.content_hash) return row.content_hash;
-  const content = contentFingerprint(JSON.parse(row.state));
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
-  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (row.content_hash?.startsWith(CONTENT_HASH_PREFIX)) return row.content_hash;
+  // Earlier releases hashed snapshots before seasons/stages were normalized.
+  return contentHash(JSON.parse(row.state));
 }
 
 // Collapse adjacent equal snapshots only. A → B → A remains three versions.

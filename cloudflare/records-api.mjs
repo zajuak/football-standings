@@ -1,6 +1,6 @@
 import { validSnapshot } from '../public/snapshot.mjs';
 export { validSnapshot } from '../public/snapshot.mjs';
-import { contentFingerprint } from '../public/state-content.mjs';
+import { contentFingerprint, contentHash } from '../public/state-content.mjs';
 import { distinctHistory } from './history.mjs';
 
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'cache-control': 'no-store' } });
@@ -48,8 +48,7 @@ export async function handleRecords(request, db) {
     if (!data.archiveOnly && current && contentFingerprint(JSON.parse(current.state)) === content) {
       return json({ revision: current.revision, currentRevision: current.revision, applied: true, unchanged: true, archived: false });
     }
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
-    const hash = [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const hash = await contentHash(data.state);
     // The SQL comparison also covers simultaneous identical requests: only the
     // first one creates a snapshot. Conflicting different content stays archived.
     await db.prepare(`INSERT INTO submissions (submission_id, base_revision, action, state, applied, created_at, content_hash)

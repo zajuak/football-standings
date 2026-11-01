@@ -79,6 +79,18 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .competition-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 .competition-subtitle { color: var(--muted); font-size: 11px; }
 .competition-option.is-active .competition-name { color: var(--blue-dark); }
+.season-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 14px; }
+.season-controls .button { min-height: 39px; white-space: nowrap; }
+.new-season-form { margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fafbfd; }
+.new-season-form .field { margin-bottom: 12px; }
+.new-season-form .history-actions { margin: 0; }
+.stage-picker { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px 14px; margin-top: 14px; padding: 13px 14px; border: 1px solid #dce3eb; border-radius: 10px; background: #fafbfd; }
+.stage-picker[hidden] { display: none; }
+.stage-picker-label { color: #566174; font-size: 12px; font-weight: 600; }
+.stage-switch { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid #dce3eb; border-radius: 8px; background: #e9edf2; }
+.stage-switch button { min-height: 31px; padding: 5px 12px; border: 0; border-radius: 5px; background: transparent; color: #667085; font-size: 12px; font-weight: 700; }
+.stage-switch button.is-active { background: #fff; color: var(--blue-dark); box-shadow: 0 1px 4px rgba(25, 38, 56, .12); }
+.stage-picker p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .settings-fields { margin-top: 17px; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
 .field-full { grid-column: 1 / -1; }

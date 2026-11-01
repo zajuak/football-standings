@@ -1,6 +1,6 @@
 import {
-  STORAGE_KEY, calculateMatchFairPlay, calculateStandings, createId, createInitialState, createResult, createCompetition, resetCompetition,
-  formatFairPlay, getActiveCompetition, getMatchFairPlay, isValidState, migrateState, updateResult,
+  STORAGE_KEY, calculateMatchFairPlay, calculateStandings, createId, createInitialState, createResult, createCompetition, createCompetitionSeason, resetCompetition,
+  formatFairPlay, getActiveCompetition, getCompetitionSeason, getCompetitionSeasons, getCompetitionStage, getMatchFairPlay, isValidState, migrateState, updateResult,
 } from './core.mjs';
 import { buildPoster, escapeXml } from './poster.mjs';
 import { validSnapshot } from './snapshot.mjs';
@@ -39,11 +39,35 @@ let toastTimer;
 let editingMatchId = null;
 let cardsTouched = { home: false, away: false };
 let previewMode = 'groups';
+const activeStages = new Map();
+const activeSeasons = new Map();
 let editorAuthenticated = false;
 try { editorAuthenticated = sessionStorage.getItem(AUTH_KEY) === '1'; } catch {}
 
-function competition() {
+function activeCompetition() {
   return getActiveCompetition(state);
+}
+
+function activeSeasonCompetition() {
+  const current = activeCompetition();
+  return getCompetitionSeason(current, activeSeasons.get(current.id));
+}
+
+function activeSeasonId() {
+  return activeSeasonCompetition().season;
+}
+
+function activeStageKey() {
+  return `${activeCompetition().id}:${activeSeasonId()}`;
+}
+
+function activeStageId() {
+  const current = activeSeasonCompetition();
+  return current.placement && activeStages.get(activeStageKey()) === 'placement' ? 'placement' : 'group';
+}
+
+function competition() {
+  return getCompetitionStage(activeSeasonCompetition(), activeStageId());
 }
 
 let saveTimer;
@@ -119,8 +143,8 @@ function updatePermissions() {
   $('readonly-banner').textContent = access.notice;
   $('readonly-banner').hidden = !access.notice;
   $('team-manager').querySelector('.summary-action').textContent = access.canEdit ? '展开编辑' : '查看球队';
-  for (const control of [elements.title, elements.date, $('add-competition'), $('add-group'), $('import-data'), $('cloud-keep'), $('cloud-read')]) control.disabled = !access.canEdit;
-  for (const form of [elements.matchForm, $('new-competition-form')]) {
+  for (const control of [elements.title, elements.date, $('add-competition'), $('add-season'), $('add-group'), $('import-data'), $('cloud-keep'), $('cloud-read')]) control.disabled = !access.canEdit;
+  for (const form of [elements.matchForm, $('new-competition-form'), $('new-season-form')]) {
     for (const control of form.elements) control.disabled = !access.canEdit;
   }
   if (access.canEdit) renderMatchTeams();
@@ -150,12 +174,29 @@ function renderPreview() {
 }
 
 function renderCompetition() {
+  const selected = activeCompetition();
   const current = competition();
-  $('competition-list').innerHTML = state.competitions.map(item => `<button class="competition-option${item.id === current.id ? ' is-active' : ''}" type="button" data-competition="${escapeXml(item.id)}" aria-pressed="${item.id === current.id}"><span class="competition-name">${escapeXml(item.shortName)}</span><span class="competition-subtitle">${item.format === 'league' ? '联赛 / 常规赛' : '小组赛'}</span></button>`).join('');
+  const stage = activeStageId();
+  $('season-select').innerHTML = getCompetitionSeasons(selected).map(item => option(item.season, `${item.season} 赛季`)).join('');
+  $('season-select').value = activeSeasonId();
+  $('competition-list').innerHTML = state.competitions.map(item => `<button class="competition-option${item.id === selected.id ? ' is-active' : ''}" type="button" data-competition="${escapeXml(item.id)}" aria-pressed="${item.id === selected.id}"><span class="competition-name">${escapeXml(item.shortName)}</span><span class="competition-subtitle">${item.format === 'league' ? '联赛 / 常规赛' : '小组赛'}</span></button>`).join('');
+  $('stage-picker').hidden = !activeSeasonCompetition().placement;
+  const stageNames = selected.id === 'women-pku-cup'
+    ? { group: '常规赛', placement: '季后赛排位组' }
+    : { group: '小组赛', placement: '排位赛' };
+  for (const button of document.querySelectorAll('[data-stage]')) {
+    const active = button.dataset.stage === stage;
+    button.textContent = stageNames[button.dataset.stage];
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  }
+  $('stage-hint').textContent = stage === 'group'
+    ? `${stageNames.group}与${stageNames.placement}的分组、球队和赛果分别保存。`
+    : current.groups.length ? `${stageNames.placement}数据独立保存，不会影响${stageNames.group}积分榜。` : '尚未进行抽签和分组，可先在下方添加小组与球队。';
   elements.title.value = current.title;
   elements.date.value = current.date;
   const teamCount = current.groups.reduce((total, selectedGroup) => total + selectedGroup.teams.length, 0);
-  elements.summary.textContent = `${teamCount} 支球队 · ${current.matches.length} 场新增赛果`;
+  elements.summary.textContent = `${teamCount} 支球队 · ${current.matches.length} 场赛果`;
 }
 
 function renderMatchTeams(reset = false) {
@@ -197,7 +238,7 @@ function renderResults() {
   const current = competition();
   elements.resultCount.textContent = `${current.matches.length} 场`;
   if (!current.matches.length) {
-    elements.resultsList.innerHTML = '<div class="empty-results">尚未录入赛果，可在下方管理球队后录入</div>';
+    elements.resultsList.innerHTML = `<div class="empty-results">${current.groups.length ? '尚未录入赛果，可在下方管理球队后录入' : '尚未进行抽签和分组，请先添加小组与球队'}</div>`;
     return;
   }
   elements.resultsList.innerHTML = current.matches.slice().reverse().map(match => {
@@ -354,6 +395,7 @@ $('auth-button').addEventListener('click', () => {
     try { sessionStorage.removeItem(AUTH_KEY); } catch {}
     cancelEdit();
     $('new-competition-form').reset(); $('new-competition-form').hidden = true;
+    $('new-season-form').reset(); $('new-season-form').hidden = true;
     updatePermissions();
     toast('已退出编辑，当前为只读模式');
     return;
@@ -395,6 +437,47 @@ $('competition-list').addEventListener('click', event => {
   if (saveTimer) save();
   state.activeCompetitionId = button.dataset.competition;
   elements.formError.textContent = ''; cancelEdit(); cacheState(); renderAll(true);
+});
+$('season-select').addEventListener('change', () => {
+  if ($('season-select').value === activeSeasonId()) return;
+  if (saveTimer) save();
+  activeSeasons.set(activeCompetition().id, $('season-select').value);
+  $('new-season-form').hidden = true;
+  elements.formError.textContent = '';
+  cancelEdit();
+  renderAll(true);
+});
+$('add-season').addEventListener('click', () => {
+  if (!canEdit()) return;
+  $('new-season-form').hidden = false;
+  $('new-season-year').value = '';
+  $('new-season-year').focus();
+});
+$('cancel-new-season').addEventListener('click', () => { $('new-season-form').hidden = true; });
+$('new-season-form').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!canEdit()) return;
+  try {
+    const current = activeCompetition();
+    const created = createCompetitionSeason(current, $('new-season-year').value);
+    activeSeasons.set(current.id, created.season);
+    activeStages.delete(`${current.id}:${created.season}`);
+    cancelEdit();
+    save('新增赛季');
+    renderAll(true);
+    $('new-season-form').reset();
+    $('new-season-form').hidden = true;
+    toast(`${created.season} 赛季已创建`);
+  } catch (error) { toast(error.message); }
+});
+$('stage-picker').addEventListener('click', event => {
+  const button = event.target.closest('[data-stage]');
+  if (!button || button.dataset.stage === activeStageId()) return;
+  if (saveTimer) save();
+  activeStages.set(activeStageKey(), button.dataset.stage);
+  elements.formError.textContent = '';
+  cancelEdit();
+  renderAll(true);
 });
 $('add-competition').addEventListener('click', () => {
   if (!canEdit()) return;
@@ -589,11 +672,13 @@ $('add-group').addEventListener('click', () => {
 
 $('reset-competition').addEventListener('click', () => {
   if (!canEdit()) return;
-  const current = competition();
-  if (!confirm(`确定将“${current.shortName}”恢复为初始数据吗？当前积分榜会恢复为初始数据，已有提交仍保留在历史记录中。`)) return;
+  const current = activeCompetition();
+  if (!confirm(`确定将“${current.shortName}”恢复为初始数据吗？所有赛季及比赛阶段都会恢复为初始数据，已有提交仍保留在历史记录中。`)) return;
   const initial = resetCompetition(current);
   const index = state.competitions.findIndex(item => item.id === current.id);
   state.competitions[index] = initial;
+  activeSeasons.delete(current.id);
+  for (const key of activeStages.keys()) if (key.startsWith(`${current.id}:`)) activeStages.delete(key);
   cancelEdit();
   save('恢复赛事初始数据');
   renderAll(true);

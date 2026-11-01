@@ -36,6 +36,22 @@
           <div><h2>选择赛事</h2><p>赛事数据统一同步到云端，切换不会新增历史</p></div>
         </div>
         <div class="competition-switch" id="competition-list" role="group" aria-label="选择赛事"></div>
+        <div class="season-controls">
+          <label class="field"><span>选择赛季</span><select id="season-select" aria-label="选择赛季"></select></label>
+          <button class="button button-secondary" id="add-season" type="button">+ 新增赛季</button>
+        </div>
+        <form id="new-season-form" class="new-season-form" hidden>
+          <label class="field"><span>赛季名称</span><input id="new-season-year" type="text" pattern="[0-9]{4}-[0-9]{2}" maxlength="7" placeholder="例如：2027-28" required></label>
+          <div class="history-actions"><button class="button button-primary" type="submit">创建赛季</button><button class="button button-secondary" id="cancel-new-season" type="button">取消</button></div>
+        </form>
+        <div class="stage-picker" id="stage-picker" hidden>
+          <span class="stage-picker-label">比赛阶段</span>
+          <div class="stage-switch" role="group" aria-label="选择比赛阶段">
+            <button class="is-active" type="button" data-stage="group" aria-pressed="true">小组赛</button>
+            <button type="button" data-stage="placement" aria-pressed="false">排位赛</button>
+          </div>
+          <p id="stage-hint"></p>
+        </div>
         <button class="button button-secondary button-full" id="add-competition" type="button">+ 新增赛事</button>
         <form id="new-competition-form" class="new-competition-form" hidden>
           <label class="field"><span>赛事名称</span><input id="new-competition-name" maxlength="40" required placeholder="例如：2027 年北大杯男足"></label>

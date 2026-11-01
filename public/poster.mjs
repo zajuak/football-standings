@@ -37,6 +37,7 @@ export function buildPoster(competition, logoDataUri = '', { mode = 'groups' } =
     note: position === 0 ? comparisonNote : null,
     rows: calculateCrossGroupStandings(competition, position).map(row => ({ ...row, name: `${row.groupName} · ${row.name}` })),
   })) : standings;
+  if (!sections.length) sections.push({ name: '积分榜暂未生成', note: '尚未进行抽签和分组，完成分组后即可生成积分榜。', rows: [] });
   const tableHeight = 58 + sections.reduce((total, section) => total + (section.note ? 68 : 50) + section.rows.length * 52, 0);
   const tableY = 154;
   const tableBottom = tableY + tableHeight;

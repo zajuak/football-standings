@@ -10,7 +10,7 @@ if (existsSync(path.join(root, "local-history.mjs"))) {
   mkdirSync("tests", { recursive: true });
   for (const file of ["core.test.mjs", "local-history.test.mjs"]) {
     let source = readFileSync(path.join(root, file), "utf8");
-    for (const module of ["core", "poster", "local-history", "state-content"]) source = source.replaceAll(`'./${module}.mjs'`, `'../public/${module}.mjs'`);
+    for (const module of ["core", "poster", "local-history", "state-content", "snapshot"]) source = source.replaceAll(`'./${module}.mjs'`, `'../public/${module}.mjs'`);
     writeFileSync(path.resolve("tests", file), source);
   }
 }

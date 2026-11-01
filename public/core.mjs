@@ -46,9 +46,22 @@ function createMenMatches() {
   ];
 }
 
+function seasonFromDate(value) {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(value ?? '');
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return '2026-27';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const start = month >= 7 ? year : year - 1;
+  return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+}
+
+function createPlacementStage(title, date) {
+  return { format: 'groups', title, date, groups: [], matches: [] };
+}
+
 function createMenCompetition() {
   return {
-    id: 'men-freshman-cup', format: 'groups',
+    id: 'men-freshman-cup', format: 'groups', season: '2026-27',
     shortName: '男足新生杯',
     title: '2026年北京大学“新生杯”男足小组赛积分榜',
     date: '2026-10-29',
@@ -83,12 +96,13 @@ function createMenCompetition() {
       ]),
     ],
     matches: createMenMatches(),
+    placement: createPlacementStage('2026年北京大学“新生杯”男足排位赛积分榜', '2026-10-29'),
   };
 }
 
 function createWomenCompetition() {
   return {
-    id: 'women-pku-cup', format: 'league',
+    id: 'women-pku-cup', format: 'league', season: '2026-27',
     shortName: '女足北大杯',
     title: '2026年北京大学“北大杯”女足常规赛积分榜',
     date: '2026-10-29',
@@ -107,6 +121,7 @@ function createWomenCompetition() {
       seedMatch('women-w2-yixue-yuanpei', '第二周', 'women-regular', 'women-yixue', 'women-yuanpei', 5, 0),
       seedMatch('women-w2-chengxinkao-zhongliwai', '第二周', 'women-regular', 'women-chengxinkao', 'women-zhongliwai', 1, 3),
     ],
+    placement: createPlacementStage('2026年北京大学“北大杯”女足季后赛排位组积分榜', '2026-10-29'),
   };
 }
 
@@ -130,7 +145,20 @@ export function migrateState(state) {
       }
     }
   }
-  for (const item of state.competitions) item.format ??= item.groups.length > 1 ? 'groups' : 'league';
+  for (const item of state.competitions) {
+    item.format ??= item.groups.length > 1 ? 'groups' : 'league';
+    item.season ??= ['men-freshman-cup', 'women-pku-cup'].includes(item.id) ? '2026-27' : seasonFromDate(item.date);
+    item.additionalSeasons ??= [];
+    if (item.id === 'men-freshman-cup' && !item.placement) {
+      item.placement = createPlacementStage('2026年北京大学“新生杯”男足排位赛积分榜', item.date);
+    }
+    if (item.id === 'women-pku-cup') {
+      if (!item.placement) item.placement = createPlacementStage('2026年北京大学“北大杯”女足季后赛排位组积分榜', item.date);
+      if (item.placement.title === '2026年北京大学“北大杯”女足排位赛积分榜') {
+        item.placement.title = '2026年北京大学“北大杯”女足季后赛排位组积分榜';
+      }
+    }
+  }
   state.revision = 4;
   return state;
 }
@@ -140,7 +168,7 @@ export function createCompetition({ name, format = 'groups', date = '' }) {
   if (!name || name.length > 40) throw new Error('赛事名称须为 1–40 个字。');
   if (!['groups', 'league'].includes(format)) throw new Error('请选择赛制。');
   return {
-    id: createId('competition'), shortName: name, title: `${name}积分榜`, date, format,
+    id: createId('competition'), shortName: name, title: `${name}积分榜`, date, format, season: seasonFromDate(date || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`),
     groups: [{ id: createId('group'), name: format === 'league' ? '常规赛' : 'A组', teams: [] }], matches: [],
   };
 }
@@ -148,16 +176,52 @@ export function createCompetition({ name, format = 'groups', date = '' }) {
 export function resetCompetition(current) {
   const initial = createInitialState().competitions.find(item => item.id === current.id);
   if (initial) return migrateState({ version: 1, revision: 4, competitions: [initial] }).competitions[0];
-  return {
-    ...structuredClone(current), matches: [],
-    groups: current.groups.map(group => ({ ...group, teams: group.teams.map(team => ({
+  const resetScores = stage => ({
+    ...structuredClone(stage), matches: [],
+    groups: stage.groups.map(group => ({ ...group, teams: group.teams.map(team => ({
       ...team, base: emptyStats(), fairPlay: 5, disciplineDeduction: 0, drawOrder: null,
     })) })),
-  };
+  });
+  return { ...resetScores(current), additionalSeasons: [], ...(current.placement ? { placement: resetScores(current.placement) } : {}) };
 }
 
 export function getActiveCompetition(state) {
   return state.competitions.find(item => item.id === state.activeCompetitionId) ?? state.competitions[0];
+}
+
+export function getCompetitionSeasons(competition) {
+  return [competition, ...(competition.additionalSeasons ?? [])];
+}
+
+export function getCompetitionSeason(competition, season) {
+  return getCompetitionSeasons(competition).find(item => item.season === season) ?? competition;
+}
+
+export function isValidSeasonName(season) {
+  if (typeof season !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})$/.exec(season);
+  return Boolean(match && Number(match[1]) >= 2000 && Number(match[1]) <= 2099 && Number(match[2]) === (Number(match[1]) + 1) % 100);
+}
+
+export function createCompetitionSeason(competition, season) {
+  season = String(season ?? '').trim();
+  if (!isValidSeasonName(season)) {
+    throw new Error('请输入有效的连续赛季，例如 2027-28。');
+  }
+  if (getCompetitionSeasons(competition).some(item => item.season === season)) throw new Error('该赛季已存在。');
+  const titles = competition.id === 'men-freshman-cup'
+    ? [`${season}赛季北京大学“新生杯”男足小组赛积分榜`, `${season}赛季北京大学“新生杯”男足排位赛积分榜`]
+    : competition.id === 'women-pku-cup'
+      ? [`${season}赛季北京大学“北大杯”女足常规赛积分榜`, `${season}赛季北京大学“北大杯”女足季后赛排位组积分榜`]
+      : [`${competition.shortName}${season}赛季积分榜`, `${competition.shortName}${season}赛季排位赛积分榜`];
+  const created = { season, format: competition.format, title: titles[0], date: '', groups: [], matches: [] };
+  if (competition.placement) created.placement = createPlacementStage(titles[1], '');
+  (competition.additionalSeasons ??= []).push(created);
+  return created;
+}
+
+export function getCompetitionStage(competition, stage = 'group') {
+  return stage === 'placement' && competition.placement ? competition.placement : competition;
 }
 
 const CARD_KEYS = ['yellow', 'secondYellowRed', 'directRed', 'yellowDirectRed'];

@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculateCrossGroupStandings, calculateMatchFairPlay, calculateStandings,
-  createInitialState, createResult, formatChineseDate, formatFairPlay, getActiveCompetition,
-  getMatchFairPlay, migrateState, updateResult,
+  createCompetition, createCompetitionSeason, createInitialState, createResult, formatChineseDate, formatFairPlay, getActiveCompetition,
+  getCompetitionSeason, getCompetitionStage, getMatchFairPlay, migrateState, resetCompetition, updateResult,
 } from '../public/core.mjs';
+import { validSnapshot } from '../public/snapshot.mjs';
 import { contentFingerprint } from '../public/state-content.mjs';
 import { buildPoster } from '../public/poster.mjs';
 
@@ -43,6 +44,80 @@ test('女足初始数据包含 8 支球队和第二周 3 场赛果', () => {
   assert.deepEqual(standings[0].rows.map(row => [row.name, row.points]), [
     ['医学', 3], ['中历外', 3], ['理叉地', 1], ['政信社', 1], ['工数经', 0], ['国光', 0], ['城新考', 0], ['元培', 0],
   ]);
+});
+
+test('男足和女足都有独立且尚未分组的排位赛阶段', () => {
+  const state = createInitialState();
+  assert.equal(validSnapshot(state), true);
+  for (const item of state.competitions) {
+    assert.equal(item.season, '2026-27');
+    const groupStage = getCompetitionStage(item, 'group');
+    const placement = getCompetitionStage(item, 'placement');
+    assert.notEqual(placement, groupStage);
+    assert.equal(placement.format, 'groups');
+    assert.deepEqual(placement.groups, []);
+    assert.deepEqual(placement.matches, []);
+    assert.match(placement.title, item.id === 'women-pku-cup' ? /女足季后赛排位组积分榜/ : /男足排位赛积分榜/);
+    assert.match(buildPoster(placement).svg, /尚未进行抽签和分组/);
+    assert.notEqual(groupStage.matches.length, 0);
+  }
+});
+
+test('旧快照自动补充排位赛阶段，不改变原小组赛数据', () => {
+  const state = createInitialState();
+  const before = state.competitions.map(item => ({ title: item.title, matches: item.matches, groups: item.groups }));
+  for (const item of state.competitions) {
+    delete item.placement;
+    delete item.season;
+  }
+  migrateState(state);
+  assert.deepEqual(state.competitions.map(item => ({ title: item.title, matches: item.matches, groups: item.groups })), before);
+  assert.ok(state.competitions.every(item => item.season === '2026-27' && item.placement && validSnapshot(state)));
+});
+
+test('新赛季使用连续赛季名称并与当前赛季数据独立', () => {
+  const state = createInitialState();
+  const men = state.competitions[0];
+  const created = createCompetitionSeason(men, '2027-28');
+  assert.equal(getCompetitionSeason(men, '2027-28'), created);
+  assert.equal(getCompetitionSeason(men, '2026-27'), men);
+  assert.equal(created.matches.length, 0);
+  assert.equal(men.matches.length, 16);
+  assert.match(created.title, /2027-28赛季/);
+  assert.match(created.placement.title, /排位赛积分榜/);
+  created.groups.push({ id: 'new-season-a', name: 'A组', teams: [team('s1', '甲'), team('s2', '乙')] });
+  created.matches.push(createResult(created, { groupId: 'new-season-a', homeId: 's1', awayId: 's2', homeScore: 1, awayScore: 0 }));
+  assert.equal(men.matches.length, 16);
+  assert.equal(validSnapshot(state), true);
+  assert.throws(() => createCompetitionSeason(men, '2027-28'), /已存在/);
+  assert.throws(() => createCompetitionSeason(men, '2028'), /连续赛季/);
+  assert.throws(() => createCompetitionSeason(men, '2028-30'), /连续赛季/);
+  const women = state.competitions[1];
+  assert.match(createCompetitionSeason(women, '2027-28').placement.title, /女足季后赛排位组积分榜/);
+});
+
+test('女足旧默认排位赛标题升级为季后赛排位组并保留自定义标题', () => {
+  const state = createInitialState();
+  const women = state.competitions.find(item => item.id === 'women-pku-cup');
+  women.placement.title = '2026年北京大学“北大杯”女足排位赛积分榜';
+  migrateState(state);
+  assert.equal(women.placement.title, '2026年北京大学“北大杯”女足季后赛排位组积分榜');
+  women.placement.title = '自定义女足榜单';
+  migrateState(state);
+  assert.equal(women.placement.title, '自定义女足榜单');
+});
+
+test('排位赛赛果和分组不影响小组赛积分榜', () => {
+  const item = createInitialState().competitions[0];
+  const placement = getCompetitionStage(item, 'placement');
+  placement.groups.push({ id: 'placement-a', name: '排位A组', teams: [team('p1', '甲'), team('p2', '乙')] });
+  placement.matches.push(createResult(placement, {
+    groupId: 'placement-a', homeId: 'p1', awayId: 'p2', homeScore: 2, awayScore: 1,
+  }));
+  assert.equal(calculateStandings(placement)[0].rows[0].points, 3);
+  assert.equal(item.matches.length, 16);
+  assert.equal(calculateStandings(item)[0].rows.find(row => row.id === 'men-xinke').points, 6);
+  assert.equal(validSnapshot({ ...createInitialState(), competitions: [item] }), true);
 });
 
 test('旧版本数据升级时补充女足新球队并保留已有修改', () => {
@@ -296,4 +371,29 @@ test('同人数小组的比较不声称剔除成绩，海报转义组名与队�
   const { svg } = buildPoster(current, '', { mode: 'cross-group' });
   assert.match(svg, /各小组球队数量相同，不剔除比赛成绩/);
   assert.match(svg, /&lt;A组&gt;/); assert.doesNotMatch(svg, /<A组>/);
+});
+
+
+test('无日期的旧快照升级不随当前年份变化，已有赛季和自定义标题保持不变', t => {
+  const legacy=createInitialState();
+  for (const item of legacy.competitions) { item.date='';delete item.season;delete item.placement; }
+  t.mock.timers.enable({apis:['Date'],now:Date.UTC(2026,10,2)});
+  const first=contentFingerprint(legacy);
+  t.mock.timers.setTime(Date.UTC(2035,8,1));
+  assert.equal(contentFingerprint(legacy),first);
+  const upgraded=migrateState(structuredClone(legacy));
+  assert.ok(upgraded.competitions.every(item=>item.season==='2026-27'));
+  upgraded.competitions[0].season='2030-31';upgraded.competitions[0].title='自定义标题';
+  migrateState(upgraded);assert.equal(upgraded.competitions[0].season,'2030-31');assert.equal(upgraded.competitions[0].title,'自定义标题');
+});
+test('自定义赛事重置同时清空两个阶段并移除额外赛季，保留队名和分组', () => {
+  const item=createCompetition({name:'测试赛事',date:'2026-11-02'});
+  item.groups[0].teams=[team('u1','甲',base(1,1,0,0,2,0)),team('u2','乙')];
+  item.placement={format:'groups',title:'排位赛',date:'',groups:[{id:'p',name:'排位组',teams:structuredClone(item.groups[0].teams)}],matches:[]};
+  item.placement.matches.push(createResult(item.placement,{groupId:'p',homeId:'u1',awayId:'u2',homeScore:2,awayScore:0}));
+  createCompetitionSeason(item,'2027-28');
+  const reset=resetCompetition(item);
+  assert.equal(reset.groups[0].teams[0].base.played,0);
+  assert.equal(reset.placement.groups[0].teams[0].base.played,0);assert.equal(reset.placement.matches.length,0);assert.deepEqual(reset.additionalSeasons,[]);
+  assert.equal(reset.placement.groups[0].teams[0].name,'甲');assert.equal(item.placement.matches.length,1);
 });
