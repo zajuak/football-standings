@@ -18,7 +18,7 @@ export function contentFingerprint(state) {
 
 
 // Change this prefix whenever compatibility migration changes canonical content.
-export const CONTENT_HASH_PREFIX = 'seasons-v1:';
+export const CONTENT_HASH_PREFIX = 'knockout-v1:';
 export async function contentHash(state) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(contentFingerprint(state)));
   return CONTENT_HASH_PREFIX + [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');

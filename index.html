@@ -49,6 +49,7 @@
           <div class="stage-switch" role="group" aria-label="选择比赛阶段">
             <button class="is-active" type="button" data-stage="group" aria-pressed="true">小组赛</button>
             <button type="button" data-stage="placement" aria-pressed="false">排位赛</button>
+            <button type="button" data-stage="knockout" aria-pressed="false">淘汰赛</button>
           </div>
           <p id="stage-hint"></p>
         </div>
@@ -65,7 +66,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="match-panel">
         <div class="section-heading">
           <span class="step">02</span>
           <div><h2>录入本轮赛果</h2><p>保存赛果后，积分与排名自动更新</p></div>
@@ -113,6 +114,21 @@
         <div class="results-list" id="results-list"></div>
       </section>
 
+      <section class="panel" id="knockout-panel" hidden>
+        <div class="section-heading">
+          <span class="step">02</span>
+          <div><h2>编辑淘汰赛对阵</h2><p>录入首轮球队与比分，晋级球队自动填入下一轮</p></div>
+        </div>
+        <div id="knockout-editor"></div>
+        <section class="knockout-fair-play">
+          <h3>淘汰赛球队公平竞赛积分</h3>
+          <p>按已录入比分的场次计算红黄牌后的平均积分，再减去纪律处罚扣分，用于精神文明奖评选。</p>
+          <div id="knockout-fair-play-list"></div>
+        </section>
+        <p class="cards-hint">单回合须分出胜负；双回合按两回合总比分晋级，总比分相同时暂不产生晋级球队。</p>
+        <p class="form-error" id="knockout-error" role="alert"></p>
+      </section>
+
       <details class="panel team-manager" id="team-manager">
         <summary>
           <span class="section-heading"><span class="step">03</span><span><strong>球队与公平竞赛积分</strong><small>积分自动计算，纪律处罚单独录入</small></span></span>
@@ -150,7 +166,7 @@
 
     <section class="preview-column" aria-label="积分榜预览区">
       <div class="preview-toolbar">
-        <div><h2>积分榜预览</h2><p>A4 竖版 · 与 Word 版式一致</p></div>
+        <div><h2 id="preview-title">积分榜预览</h2><p id="preview-subtitle">A4 竖版 · 与 Word 版式一致</p></div>
         <div class="export-actions">
           <button class="button button-secondary" id="download-svg" type="button">导出 SVG</button>
           <button class="button button-export" id="download-png" type="button">导出高清 PNG</button>
@@ -167,8 +183,8 @@
         <div class="poster" id="poster" aria-label="积分榜图片预览"></div>
       </div>
       <div class="preview-notes">
-        <span>排序规则</span>
-        <div><p>两队同分先比相互比赛积分；三队及以上先比相关球队间积分、净胜球、进球数，再比总净胜球、总进球和公平竞赛积分。</p><p>组间比较按积分、净胜球、进球数、公平竞赛积分排序；小组人数不等时，较多球队小组剔除与本组末位的比赛成绩，公平竞赛积分不剔除。</p></div>
+        <span id="preview-notes-label">排序规则</span>
+        <div id="preview-notes-content"><p>两队同分先比相互比赛积分；三队及以上先比相关球队间积分、净胜球、进球数，再比总净胜球、总进球和公平竞赛积分。</p><p>组间比较按积分、净胜球、进球数、公平竞赛积分排序；小组人数不等时，较多球队小组剔除与本组末位的比赛成绩，公平竞赛积分不剔除。</p></div>
       </div>
     </section>
   </main>

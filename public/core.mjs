@@ -1,3 +1,5 @@
+import { createKnockoutStage } from './knockout.mjs';
+
 export const STORAGE_KEY = 'pku-football-standings-v1';
 
 export function createId(prefix = 'id') {
@@ -97,6 +99,7 @@ function createMenCompetition() {
     ],
     matches: createMenMatches(),
     placement: createPlacementStage('2026年北京大学“新生杯”男足排位赛积分榜', '2026-10-29'),
+    knockout: createKnockoutStage('men-freshman-cup', '2026年北京大学“新生杯”男足淘汰赛晋级图', '2026-10-29'),
   };
 }
 
@@ -122,6 +125,7 @@ function createWomenCompetition() {
       seedMatch('women-w2-chengxinkao-zhongliwai', '第二周', 'women-regular', 'women-chengxinkao', 'women-zhongliwai', 1, 3),
     ],
     placement: createPlacementStage('2026年北京大学“北大杯”女足季后赛排位组积分榜', '2026-10-29'),
+    knockout: createKnockoutStage('women-pku-cup', '2026年北京大学“北大杯”女足季后赛淘汰赛晋级图', '2026-10-29'),
   };
 }
 
@@ -158,6 +162,13 @@ export function migrateState(state) {
         item.placement.title = '2026年北京大学“北大杯”女足季后赛排位组积分榜';
       }
     }
+    for (const season of getCompetitionSeasons(item)) {
+      if (season.knockout || !['men-freshman-cup', 'women-pku-cup'].includes(item.id)) continue;
+      const title = item.id === 'men-freshman-cup'
+        ? season === item ? '2026年北京大学“新生杯”男足淘汰赛晋级图' : `${season.season}赛季北京大学“新生杯”男足淘汰赛晋级图`
+        : season === item ? '2026年北京大学“北大杯”女足季后赛淘汰赛晋级图' : `${season.season}赛季北京大学“北大杯”女足季后赛淘汰赛晋级图`;
+      season.knockout = createKnockoutStage(item.id, title, season.date);
+    }
   }
   state.revision = 4;
   return state;
@@ -182,7 +193,17 @@ export function resetCompetition(current) {
       ...team, base: emptyStats(), fairPlay: 5, disciplineDeduction: 0, drawOrder: null,
     })) })),
   });
-  return { ...resetScores(current), additionalSeasons: [], ...(current.placement ? { placement: resetScores(current.placement) } : {}) };
+  const reset = { ...resetScores(current), additionalSeasons: [], ...(current.placement ? { placement: resetScores(current.placement) } : {}) };
+  if (reset.knockout) {
+    reset.knockout.disciplineDeductions = {};
+    for (const match of reset.knockout.rounds.flatMap(round => round.matches)) {
+      delete match.tiebreakWinner;
+      match.legs = match.legs.map(() => ({ homeScore: null, awayScore: null,
+        homeCards: { yellow: 0, secondYellowRed: 0, directRed: 0, yellowDirectRed: 0 },
+        awayCards: { yellow: 0, secondYellowRed: 0, directRed: 0, yellowDirectRed: 0 } }));
+    }
+  }
+  return reset;
 }
 
 export function getActiveCompetition(state) {
@@ -210,18 +231,19 @@ export function createCompetitionSeason(competition, season) {
   }
   if (getCompetitionSeasons(competition).some(item => item.season === season)) throw new Error('该赛季已存在。');
   const titles = competition.id === 'men-freshman-cup'
-    ? [`${season}赛季北京大学“新生杯”男足小组赛积分榜`, `${season}赛季北京大学“新生杯”男足排位赛积分榜`]
+    ? [`${season}赛季北京大学“新生杯”男足小组赛积分榜`, `${season}赛季北京大学“新生杯”男足排位赛积分榜`, `${season}赛季北京大学“新生杯”男足淘汰赛晋级图`]
     : competition.id === 'women-pku-cup'
-      ? [`${season}赛季北京大学“北大杯”女足常规赛积分榜`, `${season}赛季北京大学“北大杯”女足季后赛排位组积分榜`]
-      : [`${competition.shortName}${season}赛季积分榜`, `${competition.shortName}${season}赛季排位赛积分榜`];
+      ? [`${season}赛季北京大学“北大杯”女足常规赛积分榜`, `${season}赛季北京大学“北大杯”女足季后赛排位组积分榜`, `${season}赛季北京大学“北大杯”女足季后赛淘汰赛晋级图`]
+      : [`${competition.shortName}${season}赛季积分榜`, `${competition.shortName}${season}赛季排位赛积分榜`, `${competition.shortName}${season}赛季淘汰赛晋级图`];
   const created = { season, format: competition.format, title: titles[0], date: '', groups: [], matches: [] };
   if (competition.placement) created.placement = createPlacementStage(titles[1], '');
+  if (competition.knockout) created.knockout = createKnockoutStage(competition.id, titles[2], '');
   (competition.additionalSeasons ??= []).push(created);
   return created;
 }
 
 export function getCompetitionStage(competition, stage = 'group') {
-  return stage === 'placement' && competition.placement ? competition.placement : competition;
+  return ['placement', 'knockout'].includes(stage) && competition[stage] ? competition[stage] : competition;
 }
 
 const CARD_KEYS = ['yellow', 'secondYellowRed', 'directRed', 'yellowDirectRed'];

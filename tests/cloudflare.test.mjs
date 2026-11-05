@@ -299,3 +299,50 @@ test('新增赛季结构兼容旧哈希，纯格式升级不写入重复版本',
   assert.equal(history.items.length,1);assert.equal(history.items[0].duplicateCount,1);
   assert.deepEqual((await get(db,'?revision=1')).state,legacy);
 });
+
+test('淘汰赛分赛季完整保存并拒绝破坏对阵结构的数据', async () => {
+  const {setKnockoutTeam,setKnockoutScore}=await import('../public/knockout.mjs');
+  const db=database();const state=createInitialState();
+  await post(db,submit('knockout-base',0,state));
+  const season=createCompetitionSeason(state.competitions[0],'2027-28');
+  setKnockoutTeam(season.knockout,{matchId:'men-r12-1',name:'甲'});
+  setKnockoutTeam(season.knockout,{matchId:'men-r12-1',side:'away',name:'乙'});
+  setKnockoutScore(season.knockout,'men-r12-1',0,'home',2);setKnockoutScore(season.knockout,'men-r12-1',0,'away',1);
+  assert.equal((await post(db,submit('knockout-edit',1,state))).status,200);
+  const loaded=(await get(db)).state;
+  assert.deepEqual(loaded,state);
+  assert.equal(loaded.competitions[0].knockout.rounds[0].matches[0].homeName,'');
+  const mutations=[
+    k=>k.rounds.pop(),
+    k=>k.rounds[1].matches[0].homeSource={winner:'missing'},
+    k=>k.rounds[1].matches[0].homeSource={winner:'men-final'},
+    k=>k.rounds[1].matches[0].awaySource=[],
+    k=>k.rounds[0].matches[1].id=k.rounds[0].matches[0].id,
+    k=>k.rounds[0].matches[0].legs=[],
+    k=>k.rounds[0].matches[0].homeName='x'.repeat(31),
+    k=>k.rounds[0].byes[0].name='甲',
+    k=>k.rounds[0].matches[0].tiebreakWinner='away',
+    k=>k.rounds[2].matches[0].legs[0].homeScore=1,
+  ];
+  for(const [i,mutate] of mutations.entries()) {
+    const invalid=structuredClone(state);mutate(invalid.competitions[0].additionalSeasons[0].knockout);
+    assert.equal((await post(db,submit(`invalid-knockout-${i}`,2,invalid))).status,400,`invalid knockout ${i}`);
+  }
+  assert.equal((await get(db,'?history=1')).items.length,2);
+});
+
+test('淘汰赛兼容升级不改写旧数据，旧赛季哈希与新空对阵仍合并比对', async () => {
+  const {contentHash,CONTENT_HASH_PREFIX}=await import('../public/state-content.mjs');
+  const db=database();const old=createInitialState();for(const c of old.competitions)delete c.knockout;
+  const oldHash='seasons-v1:'+ 'b'.repeat(64);
+  await db.prepare('INSERT INTO submissions(submission_id,base_revision,action,state,applied,created_at,content_hash) VALUES(?,?,?,?,?,?,?)').bind('before-knockout',0,'旧数据',JSON.stringify(old),1,'2026-11-02T00:00:00Z',oldHash).run();
+  const upgraded=migrateState(structuredClone(old));
+  const response=await(await post(db,submit('upgrade-no-op',1,upgraded))).json();
+  assert.equal(response.unchanged,true);
+  assert.deepEqual((await get(db,'?revision=1')).state,old);
+  await post(db,{...submit('archive-upgraded',1,upgraded),archiveOnly:true});
+  const history=await get(db,'?history=1&distinct=1');
+  assert.equal(history.items.length,1);assert.equal(history.items[0].duplicateCount,1);
+  assert.ok((await contentHash(upgraded)).startsWith(CONTENT_HASH_PREFIX));
+  assert.notEqual(CONTENT_HASH_PREFIX,'seasons-v1:');
+});
