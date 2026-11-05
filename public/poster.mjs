@@ -129,7 +129,6 @@ function bracketPath(x, top, bottom, direction) {
 export function buildKnockoutPoster(knockout) {
   const bracket = getKnockoutBracket(knockout);
   const matches = new Map(bracket.rounds.flatMap(round => round.matches).map(match => [match.id, match]));
-  const byes = new Map(bracket.rounds.flatMap(round => round.byes ?? []).map(bye => [bye.id, bye]));
   const final = bracket.rounds.at(-1).matches[0];
   const men = bracket.rounds.length === 4;
   const width = men ? 1800 : 1400;
@@ -145,7 +144,7 @@ export function buildKnockoutPoster(knockout) {
     return side === 'left' ? x : center + offsets[level];
   };
   const makeNode = (source, level, side) => {
-    if (source?.bye) return { id: source.bye, kind: 'bye', bye: byes.get(source.bye), level, side };
+    if (source?.bye) return { id: source.bye, kind: 'bye', level, side };
     const match = matches.get(source?.winner);
     const node = { id: match.id, kind: 'match', match, level, side, children: [] };
     if (match.homeSource || match.awaySource) {
@@ -178,17 +177,11 @@ export function buildKnockoutPoster(knockout) {
   };
   const connectors = [];
   const pills = [];
-  const badges = [];
   const details = [];
   const addPill = (x, y, width, match, side) => pills.push({ x, y, width, match, side });
   const connect = (node, targetX, targetY) => {
     const direction = node.side === 'left' ? 1 : -1;
-    if (node.kind === 'bye') {
-      const startX = node.x + (direction === 1 ? pillWidth + 8 : -8);
-      const elbow = (startX + targetX) / 2;
-      connectors.push(`<path d="M ${startX} ${node.centerY} H ${elbow} V ${targetY} H ${targetX}"/>`);
-      return;
-    }
+    if (node.kind === 'bye') return;
     const baseX = node.x + (direction === 1 ? pillWidth + 8 : -8);
     const tipX = baseX + direction * 20;
     connectors.push(`<path d="${bracketPath(baseX, node.centerY - 26, node.centerY + 26, direction)}"/>`);
@@ -196,10 +189,7 @@ export function buildKnockoutPoster(knockout) {
     connectors.push(`<path d="M ${tipX} ${node.centerY} H ${elbow} V ${targetY} H ${targetX}"/>`);
   };
   const layoutNode = node => {
-    if (node.kind === 'bye') {
-      badges.push(node);
-      return;
-    }
+    if (node.kind === 'bye') return;
     addPill(node.x, node.centerY - 26, pillWidth, node.match, 'home');
     addPill(node.x, node.centerY + 26, pillWidth, node.match, 'away');
     if (node.match.legs.length === 2) details.push(node);
@@ -243,11 +233,6 @@ export function buildKnockoutPoster(knockout) {
     svg.push(`<rect x="${pill.x}" y="${pill.y - pillHeight / 2}" width="${pill.width}" height="${pillHeight}" rx="22" fill="url(#${eliminated ? 'knockout-out' : 'knockout-pill'})"${winner ? ' stroke="#ad2638" stroke-width="2"' : ''} filter="url(#knockout-shadow)"/>`);
     svg.push(bracketLabel(pill.x + 15, pill.y, name, pill.width - 62, { weight: 700, anchor: 'start', color: nameColor }));
     svg.push(text(pill.x + pill.width - 14, pill.y, score, { size: 18, weight: winner ? 800 : 600, anchor: 'end', color: eliminated ? '#f3f3f3' : winner ? '#a32636' : '#333333' }));
-  }
-  for (const badge of badges) {
-    const name = badge.bye?.name || '待填轮空球队';
-    svg.push(`<rect x="${badge.x}" y="${badge.centerY - pillHeight / 2}" width="${pillWidth}" height="${pillHeight}" rx="22" fill="url(#knockout-pill)" filter="url(#knockout-shadow)"/>`);
-    svg.push(bracketLabel(badge.x + pillWidth / 2, badge.centerY, name, pillWidth - 24, { weight: 700, color: badge.bye?.name ? '#a32636' : '#888888' }));
   }
   for (const node of details) {
     const legText = node.match.legs.map((leg, index) => `${index === 0 ? '首回合' : '次回合'} ${leg.homeScore ?? '–'}:${leg.awayScore ?? '–'}`).join(' · ');

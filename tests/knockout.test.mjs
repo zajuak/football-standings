@@ -173,13 +173,14 @@ test('拒绝重复球队、未知对阵和未确定参赛球队的预填比分',
   assert.throws(()=>setKnockoutTeam(stage,{matchId:'men-r12-1',side:'other',name:'乙'}),/球队/);
 });
 
-test('对阵图保留四支轮空球队，移除字母圆标并转义球队名称', () => {
+test('轮空球队仅在八进四展示，移除十二进八轮空卡片并转义球队名称', () => {
   const stage=createKnockoutStage('men-freshman-cup','男足');
   for(let n=1;n<=4;n++)setKnockoutTeam(stage,{byeId:`men-bye-${n}`,name:`轮空${n}`});
   setKnockoutTeam(stage,{matchId:'men-r12-1',name:'<script>&甲'});
   const {svg}=buildKnockoutPoster(stage);
   assert.doesNotMatch(svg,/<circle|>[ABCD]<|<script>/);
-  for(let n=1;n<=4;n++)assert.ok(svg.includes(`轮空${n}`));
+  for(let n=1;n<=4;n++)assert.equal(svg.split(`轮空${n}`).length - 1, 2); // One card: title and visible text.
+  assert.doesNotMatch(buildKnockoutPoster(createKnockoutStage('men-freshman-cup','男足')).svg,/待填轮空球队/);
   assert.ok(svg.includes('&lt;script&gt;&amp;甲'));
 });
 
