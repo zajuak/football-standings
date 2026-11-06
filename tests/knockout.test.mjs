@@ -201,3 +201,58 @@ test('自定义赛事重置清空淘汰赛成绩、红黄牌及决胜选择，�
   assert.equal(item.knockout.rounds[0].matches[0].legs[0].homeScore,0);
   const season=createCompetitionSeason(item,'2027-28');assert.equal(typeof season.knockout.title,'string');
 });
+
+test('点球比分单独保存，平局时自动晋级且不增加公平竞赛场次', async () => {
+  const {setKnockoutPenalties}=await import('../public/knockout.mjs');
+  const stage=createKnockoutStage('men-freshman-cup','男足');
+  setKnockoutTeam(stage,{matchId:'men-r12-1',name:'甲'});setKnockoutTeam(stage,{matchId:'men-r12-1',side:'away',name:'乙'});
+  result(stage,'men-r12-1',0,1,1);
+  setKnockoutPenalties(stage,'men-r12-1','home',4);
+  assert.equal(getKnockoutBracket(stage).rounds[0].matches[0].winnerName,'');
+  setKnockoutPenalties(stage,'men-r12-1','away',4);
+  assert.equal(getKnockoutBracket(stage).rounds[0].matches[0].winnerName,'');
+  setKnockoutPenalties(stage,'men-r12-1','away',3);
+  assert.equal(getKnockoutBracket(stage).rounds[1].matches[0].away.name,'甲');
+  assert.equal(stage.rounds[0].matches[0].legs[0].homeScore,1);
+  assert.equal(getKnockoutFairPlay(stage).find(row=>row.name==='甲').played,1);
+  const {svg}=buildKnockoutPoster(stage);assert.ok(svg.includes('1(4)'));assert.ok(svg.includes('1(3)'));
+  setKnockoutScore(stage,'men-r12-1',0,'home',2);
+  assert.equal(stage.rounds[0].matches[0].penalties,undefined);
+  assert.throws(()=>setKnockoutPenalties(stage,'men-r12-1','home',5),/平局/);
+  result(stage,'men-r12-1',0,2,2);
+  for(const value of [-1,100,1.5])assert.throws(()=>setKnockoutPenalties(stage,'men-r12-1','home',value),/点球比分/);
+});
+
+test('更改点球胜者清空后轮比分与点球，清空点球后不保留手动晋级', async () => {
+  const {setKnockoutPenalties,setKnockoutTiebreak}=await import('../public/knockout.mjs');
+  const stage=createKnockoutStage('men-freshman-cup','男足');
+  setKnockoutTeam(stage,{byeId:'men-bye-1',name:'丙'});
+  setKnockoutTeam(stage,{matchId:'men-r12-1',name:'甲'});setKnockoutTeam(stage,{matchId:'men-r12-1',side:'away',name:'乙'});
+  result(stage,'men-r12-1',0,0,0);setKnockoutTiebreak(stage,'men-r12-1','home');
+  setKnockoutPenalties(stage,'men-r12-1','home',4);setKnockoutPenalties(stage,'men-r12-1','away',3);
+  assert.equal(stage.rounds[0].matches[0].tiebreakWinner,undefined);
+  result(stage,'men-r8-1',0,1,1);setKnockoutPenalties(stage,'men-r8-1','home',3);setKnockoutPenalties(stage,'men-r8-1','away',5);
+  assert.equal(setKnockoutPenalties(stage,'men-r12-1','away',5).clearedMatches,1);
+  assert.equal(stage.rounds[1].matches[0].penalties,undefined);
+  assert.equal(stage.rounds[1].matches[0].legs[0].homeScore,null);
+  setKnockoutPenalties(stage,'men-r12-1','home','');setKnockoutPenalties(stage,'men-r12-1','away','');
+  assert.equal(stage.rounds[0].matches[0].penalties,undefined);
+  assert.equal(getKnockoutBracket(stage).rounds[0].matches[0].winnerName,'');
+});
+
+test('晋级图不显示空位文字，左右比分镜像且连线仅含直角直线', () => {
+  const stage=createKnockoutStage('men-freshman-cup','男足');
+  let {svg}=buildKnockoutPoster(stage);
+  assert.doesNotMatch(svg,/待晋级|待填球队|待填轮空球队|>–</);
+  const paths=[...svg.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1]);
+  assert.ok(paths.length>0);assert.ok(paths.every(path=>!/[CQASLT]/i.test(path)));
+  setKnockoutTeam(stage,{matchId:'men-r12-1',name:'左队'});setKnockoutTeam(stage,{matchId:'men-r12-1',side:'away',name:'左客'});
+  setKnockoutTeam(stage,{matchId:'men-r12-3',name:'右队'});setKnockoutTeam(stage,{matchId:'men-r12-3',side:'away',name:'右客'});
+  result(stage,'men-r12-1',0,2,0);result(stage,'men-r12-3',0,3,1);
+  ({svg}=buildKnockoutPoster(stage));
+  const texts=[...svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]*)<\/text>/g)].map(([,x,y,value])=>({x:Number(x),y:Number(y),value}));
+  for(const [name,score,mirrored] of [['左队','2',false],['右队','3',true]]){
+    const label=texts.find(t=>t.value===name&&(mirrored?t.x>1400:t.x<200));const value=texts.find(t=>t.value===score&&t.y===label.y&&(mirrored?t.x>800:t.x<800));
+    assert.ok(value);assert.equal(value.x<label.x,mirrored);
+  }
+});

@@ -119,27 +119,20 @@ function bracketLabel(x, y, value, width, options = {}) {
   return `<g><title>${escapeXml(full)}</title>${text(x, y, label, { ...style, size: fittedSize(label, width, maximum, minimum) })}</g>`;
 }
 
-function bracketPath(x, top, bottom, direction) {
-  const middle = (top + bottom) / 2;
-  const bend = 10 * direction;
-  const tip = 20 * direction;
-  return `M ${x} ${top} C ${x + bend} ${top}, ${x + bend} ${top + 10}, ${x + bend} ${middle - 12} Q ${x + bend} ${middle}, ${x + tip} ${middle} Q ${x + bend} ${middle}, ${x + bend} ${middle + 12} C ${x + bend} ${bottom - 10}, ${x + bend} ${bottom}, ${x} ${bottom}`;
-}
-
 export function buildKnockoutPoster(knockout) {
   const bracket = getKnockoutBracket(knockout);
   const matches = new Map(bracket.rounds.flatMap(round => round.matches).map(match => [match.id, match]));
   const final = bracket.rounds.at(-1).matches[0];
   const men = bracket.rounds.length === 4;
-  const width = men ? 1800 : 1400;
+  const width = men ? 1600 : 1200;
   const center = width / 2;
-  const pillWidth = 170;
+  const pillWidth = 144;
   const pillHeight = 44;
-  const finalPillWidth = 130;
+  const finalPillWidth = 144;
   const top = men ? 190 : 220;
   const leafStride = 128;
   const xForLevel = (level, side) => {
-    const offsets = men ? { 1: 250, 2: 450, 3: 650 } : { 1: 400 };
+    const offsets = men ? { 1: 250, 2: 440, 3: 630 } : { 1: 380 };
     const x = center - offsets[level] - (side === 'left' ? pillWidth : 0);
     return side === 'left' ? x : center + offsets[level];
   };
@@ -172,40 +165,57 @@ export function buildKnockoutPoster(knockout) {
   }
   const finalY = (roots[0].centerY + roots[1].centerY) / 2;
   const finalPositions = {
-    home: { x: center - 190, y: finalY },
-    away: { x: center + 60, y: finalY },
+    home: { x: center - 44 - finalPillWidth, y: finalY },
+    away: { x: center + 44, y: finalY },
   };
   const connectors = [];
   const pills = [];
   const details = [];
-  const addPill = (x, y, width, match, side) => pills.push({ x, y, width, match, side });
+  const units = value => Array.from(String(value)).reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 1 : .55), 0);
+  const addPill = (slotX, y, maxWidth, match, side, chartSide) => {
+    const name = match[side].name;
+    const baseScore = match.legs.length === 2
+      ? match.completed ? match[`${side}Aggregate`] : ''
+      : match.legs[0][`${side}Score`] ?? '';
+    const penalty = match.penalties?.[`${side}Score`];
+    const score = baseScore === '' ? '' : penalty != null ? `${baseScore}(${penalty})` : String(baseScore);
+    const scoreWidth = units(score) * 22;
+    const width = Math.min(maxWidth, Math.max(96, units(name) * 26 + scoreWidth + 24 + (score ? 10 : 0)));
+    const pill = { x: slotX + (chartSide === 'left' ? maxWidth - width : 0), y, width, match, side, chartSide, score, scoreWidth };
+    pills.push(pill);
+    return pill;
+  };
   const connect = (node, targetX, targetY) => {
     const direction = node.side === 'left' ? 1 : -1;
     if (node.kind === 'bye') return;
-    const baseX = node.x + (direction === 1 ? pillWidth + 8 : -8);
-    const tipX = baseX + direction * 20;
-    connectors.push(`<path d="${bracketPath(baseX, node.centerY - 26, node.centerY + 26, direction)}"/>`);
-    const elbow = (tipX + targetX) / 2;
-    connectors.push(`<path d="M ${tipX} ${node.centerY} H ${elbow} V ${targetY} H ${targetX}"/>`);
+    const baseX = node.x + (direction === 1 ? pillWidth : 0);
+    const joinX = baseX + direction * 12;
+    connectors.push(`<path d="M ${baseX} ${node.centerY - 26} H ${joinX} V ${node.centerY + 26} H ${baseX}"/>`);
+    const elbow = (joinX + targetX) / 2;
+    connectors.push(`<path d="M ${joinX} ${node.centerY} H ${elbow} V ${targetY} H ${targetX}"/>`);
   };
   const layoutNode = node => {
     if (node.kind === 'bye') return;
-    addPill(node.x, node.centerY - 26, pillWidth, node.match, 'home');
-    addPill(node.x, node.centerY + 26, pillWidth, node.match, 'away');
+    const teamPills = [
+      addPill(node.x, node.centerY - 26, pillWidth, node.match, 'home', node.side),
+      addPill(node.x, node.centerY + 26, pillWidth, node.match, 'away', node.side),
+    ];
     if (node.match.legs.length === 2) details.push(node);
     node.children?.forEach((child, index) => {
       layoutNode(child);
-      connect(child, node.x + (node.side === 'right' ? pillWidth : 0), node.centerY + (index === 0 ? -26 : 26));
+      const target = teamPills[index];
+      connect(child, target.x + (node.side === 'right' ? target.width : 0), target.y);
     });
   };
+  const finalPills = [
+    addPill(finalPositions.home.x, finalY, finalPillWidth, final, 'home', 'left'),
+    addPill(finalPositions.away.x, finalY, finalPillWidth, final, 'away', 'right'),
+  ];
   roots.forEach((root, index) => {
     layoutNode(root);
-    const side = index === 0 ? 'home' : 'away';
-    const target = finalPositions[side];
-    connect(root, target.x + (root.side === 'right' ? finalPillWidth : 0), target.y);
+    const target = finalPills[index];
+    connect(root, target.x + (root.side === 'right' ? target.width : 0), target.y);
   });
-  addPill(finalPositions.home.x, finalY, finalPillWidth, final, 'home');
-  addPill(finalPositions.away.x, finalY, finalPillWidth, final, 'away');
   const footerY = top + (men ? 4 * leafStride : 170) + 80;
   const height = footerY + 90;
   const svg = [];
@@ -219,23 +229,22 @@ export function buildKnockoutPoster(knockout) {
     : [[xForLevel(1, 'left') + pillWidth / 2, bracket.rounds[0].name], [xForLevel(1, 'right') + pillWidth / 2, bracket.rounds[0].name]];
   for (const [x, label] of roundLabels) svg.push(text(x, 146, label, { size: 18, weight: 600, color: '#777777' }));
   svg.push(text(center, finalY - 82, bracket.rounds.at(-1).name, { size: 18, weight: 600, color: '#777777' }));
-  svg.push(`<g fill="none" stroke="#a84b55" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${connectors.join('')}</g>`);
+  svg.push(`<g fill="none" stroke="#a84b55" stroke-width="1.6" stroke-linecap="butt" stroke-linejoin="miter">${connectors.join('')}</g>`);
   for (const pill of pills) {
     const team = pill.match[pill.side];
-    const name = team.name || (team.source ? '待晋级' : '待填球队');
+    if (!team.name) continue;
+    const name = team.name;
     const winner = pill.match.winnerName && pill.match.winnerName === team.name;
     const eliminated = pill.match.winnerName && team.name && !winner;
-    const doubleLeg = pill.match.legs.length === 2;
-    let score = '–';
-    if (doubleLeg && pill.match.completed) score = pill.match[`${pill.side}Aggregate`];
-    if (!doubleLeg && Number.isInteger(pill.match.legs[0][`${pill.side}Score`])) score = pill.match.legs[0][`${pill.side}Score`];
     const nameColor = eliminated ? '#f3f3f3' : team.name ? '#a32636' : '#888888';
     svg.push(`<rect x="${pill.x}" y="${pill.y - pillHeight / 2}" width="${pill.width}" height="${pillHeight}" rx="22" fill="url(#${eliminated ? 'knockout-out' : 'knockout-pill'})"${winner ? ' stroke="#ad2638" stroke-width="2"' : ''} filter="url(#knockout-shadow)"/>`);
-    svg.push(bracketLabel(pill.x + 15, pill.y, name, pill.width - 62, { weight: 700, anchor: 'start', color: nameColor }));
-    svg.push(text(pill.x + pill.width - 14, pill.y, score, { size: 18, weight: winner ? 800 : 600, anchor: 'end', color: eliminated ? '#f3f3f3' : winner ? '#a32636' : '#333333' }));
+    const mirrored = pill.chartSide === 'right';
+    const labelWidth = pill.width - 24 - pill.scoreWidth - (pill.score ? 10 : 0);
+    svg.push(bracketLabel(mirrored ? pill.x + pill.width - 12 : pill.x + 12, pill.y, name, labelWidth, { maximum: 26, minimum: 12, weight: 700, anchor: mirrored ? 'end' : 'start', color: nameColor }));
+    svg.push(text(mirrored ? pill.x + 12 : pill.x + pill.width - 12, pill.y, pill.score, { size: 22, weight: winner ? 800 : 600, anchor: mirrored ? 'start' : 'end', color: eliminated ? '#f3f3f3' : winner ? '#a32636' : '#333333' }));
   }
   for (const node of details) {
-    const legText = node.match.legs.map((leg, index) => `${index === 0 ? '首回合' : '次回合'} ${leg.homeScore ?? '–'}:${leg.awayScore ?? '–'}`).join(' · ');
+    const legText = node.match.legs.map((leg, index) => leg.homeScore != null || leg.awayScore != null ? `${index === 0 ? '首回合' : '次回合'} ${leg.homeScore ?? ''}:${leg.awayScore ?? ''}` : '').filter(Boolean).join(' · ');
     svg.push(text(node.x + pillWidth / 2, node.centerY + 66, legText, { size: 14, color: '#777777' }));
   }
   svg.push(text(center, finalY, 'VS', { size: 56, weight: 700, color: '#b2b2b2' }));

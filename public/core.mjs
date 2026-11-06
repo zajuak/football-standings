@@ -198,6 +198,7 @@ export function resetCompetition(current) {
     reset.knockout.disciplineDeductions = {};
     for (const match of reset.knockout.rounds.flatMap(round => round.matches)) {
       delete match.tiebreakWinner;
+      delete match.penalties;
       match.legs = match.legs.map(() => ({ homeScore: null, awayScore: null,
         homeCards: { yellow: 0, secondYellowRed: 0, directRed: 0, yellowDirectRed: 0 },
         awayCards: { yellow: 0, secondYellowRed: 0, directRed: 0, yellowDirectRed: 0 } }));

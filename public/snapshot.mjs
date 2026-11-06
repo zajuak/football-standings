@@ -49,6 +49,9 @@ function validKnockout(stage, competitionId) {
       const target = expected.matches[matchIndex];
       if (match.id !== target.id || !Array.isArray(match.legs) || match.legs.length !== target.legs.length ||
         (match.tiebreakWinner != null && !['home', 'away'].includes(match.tiebreakWinner))) return false;
+      if (match.penalties != null && (typeof match.penalties !== 'object' || Array.isArray(match.penalties) ||
+        Object.keys(match.penalties).some(key => !['homeScore', 'awayScore'].includes(key)) ||
+        !['homeScore', 'awayScore'].every(key => match.penalties[key] == null || (Number.isInteger(match.penalties[key]) && match.penalties[key] >= 0 && match.penalties[key] <= 99)))) return false;
       if (!['home', 'away'].every(side => {
         if (!validSource(match[`${side}Source`], target[`${side}Source`])) return false;
         const name = match[`${side}Name`];
@@ -66,7 +69,8 @@ function validKnockout(stage, competitionId) {
   // above also prevents cyclic/missing sources from crashing poster rendering.
   return getKnockoutBracket(knockout).rounds.every(round => round.matches.every(match =>
     (!match.legs.some(leg => leg.homeScore != null || leg.awayScore != null) || (match.home.name.trim() && match.away.name.trim())) &&
-    (match.tiebreakWinner == null || (match.completed && match.homeAggregate === match.awayAggregate && match.home.name.trim() && match.away.name.trim()))));
+    (match.tiebreakWinner == null || (match.completed && match.homeAggregate === match.awayAggregate && match.home.name.trim() && match.away.name.trim())) &&
+    (!match.penaltiesStarted || (match.completed && match.homeAggregate === match.awayAggregate && match.home.name.trim() && match.away.name.trim() && match.tiebreakWinner == null))));
 }
 
 function validStages(stage, competitionId) {

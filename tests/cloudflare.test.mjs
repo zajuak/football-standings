@@ -346,3 +346,25 @@ test('淘汰赛兼容升级不改写旧数据，旧赛季哈希与新空对阵�
   assert.ok((await contentHash(upgraded)).startsWith(CONTENT_HASH_PREFIX));
   assert.notEqual(CONTENT_HASH_PREFIX,'seasons-v1:');
 });
+
+test('云端保存点球比分及部分录入状态，拒绝非法分数和非平局决胜',async()=>{
+  const {setKnockoutTeam,setKnockoutScore,setKnockoutPenalties}=await import('../public/knockout.mjs');
+  const db=database(),state=createInitialState(),stage=state.competitions[0].knockout;
+  setKnockoutTeam(stage,{matchId:'men-r12-1',name:'甲'});setKnockoutTeam(stage,{matchId:'men-r12-1',side:'away',name:'乙'});
+  setKnockoutScore(stage,'men-r12-1',0,'home',1);setKnockoutScore(stage,'men-r12-1',0,'away',1);
+  setKnockoutPenalties(stage,'men-r12-1','home',4);
+  assert.equal((await post(db,submit('partial-penalties',0,state))).status,200);
+  setKnockoutPenalties(stage,'men-r12-1','away',3);
+  assert.equal((await post(db,submit('complete-penalties',1,state))).status,200);
+  assert.deepEqual((await get(db)).state,state);
+  const invalid=[
+    m=>m.penalties.homeScore=-1,m=>m.penalties.homeScore='4',m=>m.penalties.awayScore=100,
+    m=>m.legs[0].awayScore=2,m=>m.tiebreakWinner='home',m=>m.penalties=[],
+  ];
+  for(const [i,mutate]of invalid.entries()){
+    const bad=structuredClone(state);mutate(bad.competitions[0].knockout.rounds[0].matches[0]);
+    assert.equal((await post(db,submit(`bad-penalty-${i}`,2,bad))).status,400);
+  }
+  assert.equal((await get(db,'?history=1')).items.length,2);
+  assert.equal((await get(db,'?revision=1')).state.competitions[0].knockout.rounds[0].matches[0].penalties.awayScore,null);
+});

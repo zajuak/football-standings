@@ -76,11 +76,14 @@ export function getKnockoutBracket(knockout) {
       const completed = match.legs.every(leg => Number.isInteger(leg.homeScore) && Number.isInteger(leg.awayScore));
       const homeAggregate = match.legs.reduce((total, leg) => total + (leg.homeScore ?? 0), 0);
       const awayAggregate = match.legs.reduce((total, leg) => total + (leg.awayScore ?? 0), 0);
+      const penaltiesStarted = ['homeScore', 'awayScore'].some(key => match.penalties?.[key] != null);
+      const penaltiesCompleted = ['homeScore', 'awayScore'].every(key => Number.isInteger(match.penalties?.[key])) && match.penalties.homeScore !== match.penalties.awayScore;
       const winnerName = completed && home.name && away.name
         ? homeAggregate !== awayAggregate ? homeAggregate > awayAggregate ? home.name : away.name
-          : match.tiebreakWinner === 'home' ? home.name : match.tiebreakWinner === 'away' ? away.name : ''
+          : penaltiesStarted ? penaltiesCompleted ? match.penalties.homeScore > match.penalties.awayScore ? home.name : away.name : ''
+            : match.tiebreakWinner === 'home' ? home.name : match.tiebreakWinner === 'away' ? away.name : ''
         : '';
-      const result = { ...match, home, away, homeAggregate, awayAggregate, completed, winnerName };
+      const result = { ...match, home, away, homeAggregate, awayAggregate, completed, penaltiesStarted, penaltiesCompleted, winnerName };
       winners.set(match.id, winnerName);
       return result;
     }),
@@ -114,10 +117,11 @@ function updateParticipants(knockout, update) {
       const previous = before.get(match.id);
       const next = current.get(match.id);
       if (previous[0] === next.home.name && previous[1] === next.away.name) continue;
-      if (match.tiebreakWinner || match.legs.some(leg => leg.homeScore != null || leg.awayScore != null ||
+      if (match.tiebreakWinner || match.penalties || match.legs.some(leg => leg.homeScore != null || leg.awayScore != null ||
         ['home', 'away'].some(side => Object.values(leg[`${side}Cards`] ?? {}).some(Number)))) clearedMatches++;
       match.legs = legs(match.legs.length);
       delete match.tiebreakWinner;
+      delete match.penalties;
     }
   }
   return { clearedMatches };
@@ -159,7 +163,7 @@ export function setKnockoutScore(knockout, matchId, legIndex, side, value) {
   const resolved = getKnockoutBracket(knockout).rounds.flatMap(round => round.matches).find(item => item.id === matchId);
   if (score !== null && (!resolved.home.name.trim() || !resolved.away.name.trim())) throw new Error('请先确定本场两支球队，再填写比分。');
   return updateParticipants(knockout, () => {
-    if (leg[`${side}Score`] !== score) delete match.tiebreakWinner;
+    if (leg[`${side}Score`] !== score) { delete match.tiebreakWinner; delete match.penalties; }
     leg[`${side}Score`] = score;
   });
 }
@@ -167,10 +171,23 @@ export function setKnockoutScore(knockout, matchId, legIndex, side, value) {
 export function setKnockoutTiebreak(knockout, matchId, side) {
   const match = knockout.rounds.flatMap(round => round.matches).find(item => item.id === matchId);
   const resolved = getKnockoutBracket(knockout).rounds.flatMap(round => round.matches).find(item => item.id === matchId);
-  if (!match || !['', 'home', 'away'].includes(side) || !resolved.completed || !resolved.home.name.trim() || !resolved.away.name.trim() || resolved.homeAggregate !== resolved.awayAggregate) throw new Error('请先录入完整的平局比分，再确认晋级球队。');
+  if (!match || !['', 'home', 'away'].includes(side) || !resolved.completed || !resolved.home.name.trim() || !resolved.away.name.trim() || resolved.homeAggregate !== resolved.awayAggregate || resolved.penaltiesStarted) throw new Error('请先录入完整的平局比分；已填写点球比分时将自动确定晋级球队。');
   return updateParticipants(knockout, () => {
     if (side) match.tiebreakWinner = side;
     else delete match.tiebreakWinner;
+  });
+}
+
+export function setKnockoutPenalties(knockout, matchId, side, value) {
+  const match = knockout.rounds.flatMap(round => round.matches).find(item => item.id === matchId);
+  const resolved = getKnockoutBracket(knockout).rounds.flatMap(round => round.matches).find(item => item.id === matchId);
+  if (!match || !['home', 'away'].includes(side) || !resolved.completed || !resolved.home.name.trim() || !resolved.away.name.trim() || resolved.homeAggregate !== resolved.awayAggregate) throw new Error('请先录入完整的平局比分，再填写点球大战比分。');
+  const score = value === '' || value == null ? null : Number(value);
+  if (score !== null && (!Number.isInteger(score) || score < 0 || score > 99)) throw new Error('点球比分须为 0–99 之间的整数。');
+  return updateParticipants(knockout, () => {
+    match.penalties = { homeScore: null, awayScore: null, ...match.penalties, [`${side}Score`]: score };
+    delete match.tiebreakWinner;
+    if (match.penalties.homeScore == null && match.penalties.awayScore == null) delete match.penalties;
   });
 }
 
@@ -220,6 +237,7 @@ export function getKnockoutFairPlay(knockout) {
     return {
       name: row.name,
       played: row.played,
+      fairPlayPoints: row.fairPlayPoints,
       beforeDiscipline,
       disciplineDeduction,
       fairPlay: beforeDiscipline - disciplineDeduction,

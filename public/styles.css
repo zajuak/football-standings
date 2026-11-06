@@ -181,6 +181,9 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 #match-panel[hidden], #knockout-panel[hidden] { display: none; }
 .knockout-tiebreak { margin-top: 10px; }
 .knockout-tiebreak[hidden] { display: none; }
+.knockout-penalties { margin-top: 12px; padding: 10px; border-radius: 8px; background: #edf3fb; }
+.knockout-penalties[hidden] { display: none; }
+.knockout-penalties > p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .knockout-round + .knockout-round { margin-top: 20px; padding-top: 18px; border-top: 1px solid #e7ebf0; }
 .knockout-round > h3 { margin: 0 0 12px; color: #374256; font-size: 13px; }
 .knockout-byes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; padding: 12px; border-radius: 10px; background: #f6f8fb; }
@@ -213,7 +216,7 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 .knockout-fair-play > h3 { margin: 0 0 6px; color: #374256; font-size: 13px; }
 .knockout-fair-play > p { margin: 0 0 12px; color: var(--muted); font-size: 10px; line-height: 1.6; }
 #knockout-fair-play-list { overflow-x: auto; }
-#knockout-fair-play-list table { width: 100%; min-width: 370px; border-collapse: collapse; font-size: 10px; }
+#knockout-fair-play-list table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 10px; }
 #knockout-fair-play-list th, #knockout-fair-play-list td { padding: 8px 5px; border-bottom: 1px solid #e7ebf0; text-align: center; white-space: nowrap; }
 #knockout-fair-play-list thead th { background: #f2f5f8; color: #64748b; font-weight: 600; }
 #knockout-fair-play-list tbody th { max-width: 90px; overflow: hidden; color: #374256; text-align: left; text-overflow: ellipsis; }

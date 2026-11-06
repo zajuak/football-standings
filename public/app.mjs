@@ -3,7 +3,8 @@ import {
   formatFairPlay, getActiveCompetition, getCompetitionSeason, getCompetitionSeasons, getCompetitionStage, getMatchFairPlay, isValidState, migrateState, updateResult,
 } from './core.mjs';
 import { buildKnockoutPoster, buildPoster, escapeXml } from './poster.mjs';
-import { getKnockoutBracket, getKnockoutFairPlay, getKnockoutSummary, setKnockoutCards, setKnockoutDiscipline, setKnockoutScore, setKnockoutTeam, setKnockoutTiebreak } from './knockout.mjs';
+import { getKnockoutBracket, getKnockoutSummary, setKnockoutCards, setKnockoutDiscipline, setKnockoutScore, setKnockoutTeam, setKnockoutTiebreak, setKnockoutPenalties } from './knockout.mjs';
+import { getSeasonFairPlay } from './fair-play.mjs';
 import { validSnapshot } from './snapshot.mjs';
 import { CloudSync } from './cloud-sync.mjs';
 import { interactionState } from './interaction-state.mjs';
@@ -166,7 +167,7 @@ function renderPreview() {
   $('preview-subtitle').textContent = knockout ? '按比赛轮次排列 · 自动显示晋级球队' : 'A4 竖版 · 与 Word 版式一致';
   $('preview-notes-label').textContent = knockout ? '晋级规则' : '排序规则';
   $('preview-notes-content').innerHTML = knockout
-    ? '<p>胜者自动进入下一轮。女足四进二采用双回合总比分，决赛为单回合；平局时请在比赛决出胜负后确认晋级球队。</p><p>修改前轮结果使后续参赛球队发生变化时，会清空受影响场次的旧比分和红黄牌，请重新录入。</p>'
+    ? '<p>胜者自动进入下一轮。女足四进二采用双回合总比分，决赛为单回合；平局时录入点球大战比分，图片以 1(4) 的形式显示。点球不计入比赛进球和公平竞赛场次。</p><p>修改前轮结果使后续参赛球队发生变化时，会清空受影响场次的旧比分、点球和红黄牌，请重新录入。</p>'
     : '<p>两队同分先比相互比赛积分；三队及以上先比相关球队间积分、净胜球、进球数，再比总净胜球、总进球和公平竞赛积分。</p><p>组间比较按积分、净胜球、进球数、公平竞赛积分排序；小组人数不等时，较多球队小组剔除与本组末位的比赛成绩，公平竞赛积分不剔除。</p>';
   elements.poster.setAttribute('aria-label', knockout ? '淘汰赛晋级图预览' : '积分榜图片预览');
   if (knockout) {
@@ -311,15 +312,18 @@ function renderManagement() {
 }
 
 function renderKnockoutFairPlay() {
-  const rows = getKnockoutFairPlay(competition());
+  const rows = getSeasonFairPlay(activeSeasonCompetition());
+  const groupLabel = activeCompetition().id === 'women-pku-cup' ? '常规赛' : '小组赛';
+  $('fair-play-heading').textContent = `本赛季公平竞赛积分总表（${groupLabel}＋淘汰赛）`;
+  let rank = 0;
   $('knockout-fair-play-list').innerHTML = rows.length ? `<table>
-    <thead><tr><th>排名</th><th>球队</th><th>计入场次</th><th>红黄牌后场均</th><th>纪律扣分</th><th>最终积分</th></tr></thead>
-    <tbody>${rows.map((row, index) => `<tr>
-      <td>${index + 1}</td><th>${escapeXml(row.name)}</th><td>${row.played}</td><td>${formatFairPlay(row.beforeDiscipline)}</td>
-      <td><input type="number" min="0" max="99" step="1" inputmode="numeric" data-knockout-discipline="${escapeXml(row.name)}" value="${row.disciplineDeduction}" aria-label="${escapeXml(row.name)}纪律处罚扣分"></td>
-      <td data-final-fairplay><strong>${formatFairPlay(row.fairPlay)}</strong></td>
+    <thead><tr><th>排名</th><th>球队</th><th>${groupLabel}场次</th><th>淘汰赛场次</th><th>合计场次</th><th>红黄牌后场均</th><th>${groupLabel}纪律扣分</th><th>淘汰赛纪律扣分</th><th>最终积分</th></tr></thead>
+    <tbody>${rows.map(row => `<tr>
+      <td>${row.played ? ++rank : '—'}</td><th>${escapeXml(row.name)}</th><td>${row.groupPlayed}</td><td>${row.knockoutPlayed}</td><td>${row.played}</td><td>${row.played ? formatFairPlay(row.beforeDiscipline) : '—'}</td><td>${formatFairPlay(row.groupDiscipline)}</td>
+      <td>${row.hasKnockout ? `<input type="number" min="0" max="99" step="1" inputmode="numeric" data-knockout-discipline="${escapeXml(row.name)}" value="${row.knockoutDiscipline}" aria-label="${escapeXml(row.name)}纪律处罚扣分">` : '—'}</td>
+      <td data-final-fairplay><strong>${row.played ? formatFairPlay(row.fairPlay) : '未出场'}</strong></td>
     </tr>`).join('')}</tbody>
-  </table>` : '<div class="empty-results">填写淘汰赛球队后，在此查看公平竞赛积分。</div>';
+  </table>` : '<div class="empty-results">填写本赛季球队后，在此查看公平竞赛积分总表。</div>';
 }
 
 function renderKnockoutEditor() {
@@ -359,7 +363,11 @@ function renderKnockoutEditor() {
               </details>
             </div>`;
           }).join('')}</div>
-          <label class="field knockout-tiebreak" hidden><span>平局时确认晋级球队</span><select data-knockout-tiebreak="${escapeXml(match.id)}" aria-label="${escapeXml(round.name)} 对阵 ${matchIndex + 1} 平局晋级球队"></select></label>
+          <div class="knockout-penalties" hidden>
+            <div class="knockout-leg"><span>点球大战</span><div>${['home', 'away'].map((side, index) => `${index ? '<b>:</b>' : ''}<input type="number" min="0" max="99" step="1" inputmode="numeric" data-knockout-penalties="${escapeXml(match.id)}" data-side="${side}" value="${match.penalties?.[`${side}Score`] ?? ''}" aria-label="${escapeXml(round.name)} 对阵 ${matchIndex + 1} ${side === 'home' ? '球队一' : '球队二'}点球比分">`).join('')}</div></div>
+            <p>填写完整点球比分后自动晋级，点球数显示在比赛比分后的括号内。</p>
+          </div>
+          <label class="field knockout-tiebreak" hidden><span>未录点球时手动确认晋级（兼容已有记录）</span><select data-knockout-tiebreak="${escapeXml(match.id)}" aria-label="${escapeXml(round.name)} 对阵 ${matchIndex + 1} 平局晋级球队"></select></label>
           <p class="knockout-advancement${match.winnerName ? ' is-winner' : ''}">${match.winnerName
             ? `${match.legs.length === 2 ? `总比分 ${match.homeAggregate} : ${match.awayAggregate} · ` : ''}晋级：${escapeXml(match.winnerName)}`
             : match.completed && match.home.name && match.away.name && match.homeAggregate === match.awayAggregate
@@ -394,15 +402,21 @@ function refreshKnockoutEditor() {
       cardSide.querySelector('.knockout-card-score').textContent = formatFairPlay(calculateMatchFairPlay(match.legs[Number(input.dataset.leg)][`${input.dataset.side}Cards`] ?? {}));
     }
     const tied = !pending && match.completed && match.homeAggregate === match.awayAggregate;
+    article.querySelector('.knockout-penalties').hidden = !tied;
+    for (const input of article.querySelectorAll('[data-knockout-penalties]')) {
+      const value = match.penalties?.[`${input.dataset.side}Score`] ?? '';
+      if (input.value !== String(value)) input.value = value;
+      input.dataset.pending = String(!tied);
+    }
     const select = article.querySelector('[data-knockout-tiebreak]');
-    select.closest('label').hidden = !tied;
+    select.closest('label').hidden = !tied || match.penaltiesStarted;
     const options = option('', '比赛决出胜负后选择') + ['home', 'away'].map(side => option(side, match[side].name, match.tiebreakWinner === side)).join('');
     if (select.innerHTML !== options) select.innerHTML = options;
     select.value = match.tiebreakWinner ?? '';
     const status = article.querySelector('.knockout-advancement');
     status.classList.toggle('is-winner', Boolean(match.winnerName));
-    status.textContent = match.winnerName ? `${match.legs.length === 2 ? `总比分 ${match.homeAggregate} : ${match.awayAggregate} · ` : ''}${tied ? '平局决胜 · ' : ''}晋级：${match.winnerName}`
-      : tied ? '比分相同，请在比赛决出胜负后确认晋级球队' : pending ? '等待两支参赛球队确定' : '填写完整比分后自动确定晋级球队';
+    status.textContent = match.winnerName ? `${match.legs.length === 2 ? `总比分 ${match.homeAggregate} : ${match.awayAggregate} · ` : ''}${match.penaltiesCompleted ? `点球 ${match.penalties.homeScore} : ${match.penalties.awayScore} · ` : tied ? '平局决胜 · ' : ''}晋级：${match.winnerName}`
+      : tied ? '比分相同，请填写决出胜负的点球大战比分' : pending ? '等待两支参赛球队确定' : '填写完整比分后自动确定晋级球队';
   }
   renderKnockoutFairPlay();
   updatePermissions();
@@ -527,6 +541,8 @@ $('knockout-editor').addEventListener('input', event => {
       result = setKnockoutScore(competition(), input.dataset.knockoutScore, Number(input.dataset.leg), input.dataset.side, input.value);
     } else if (input.dataset.knockoutTiebreak) {
       result = setKnockoutTiebreak(competition(), input.dataset.knockoutTiebreak, input.value);
+    } else if (input.dataset.knockoutPenalties) {
+      result = setKnockoutPenalties(competition(), input.dataset.knockoutPenalties, input.dataset.side, input.value);
     } else if (input.dataset.knockoutCards) {
       const cardInputs = input.closest('.knockout-card-side').querySelectorAll('[data-card]');
       const cards = Object.fromEntries([...cardInputs].map(item => [item.dataset.card, item.value === '' ? 0 : Number(item.value)]));
@@ -548,7 +564,7 @@ $('knockout-editor').addEventListener('input', event => {
   }
 });
 $('knockout-editor').addEventListener('change', event => {
-  if (!canEdit() || !event.target.matches('[data-knockout-team], [data-knockout-bye], [data-knockout-score]')) return;
+  if (!canEdit() || !event.target.matches('[data-knockout-team], [data-knockout-bye], [data-knockout-score], [data-knockout-penalties]')) return;
   const input = event.target;
   const current = competition();
   if (input.dataset.knockoutTeam) input.value = current.rounds.flatMap(round => round.matches).find(match => match.id === input.dataset.knockoutTeam)[`${input.dataset.side}Name`];
@@ -560,8 +576,8 @@ $('knockout-fair-play-list').addEventListener('input', event => {
   const input = event.target;
   try {
     setKnockoutDiscipline(competition(), input.dataset.knockoutDiscipline, input.value);
-    const row = getKnockoutFairPlay(competition()).find(item => item.name === input.dataset.knockoutDiscipline);
-    input.closest('tr').querySelector('[data-final-fairplay] strong').textContent = formatFairPlay(row.fairPlay);
+    const row = getSeasonFairPlay(activeSeasonCompetition()).find(item => item.name === input.dataset.knockoutDiscipline);
+    input.closest('tr').querySelector('[data-final-fairplay] strong').textContent = row.played ? formatFairPlay(row.fairPlay) : '未出场';
     $('knockout-error').textContent = '';
     scheduleSave('修改淘汰赛纪律处罚');
   } catch (error) {
