@@ -240,10 +240,12 @@ test('更改点球胜者清空后轮比分与点球，清空点球后不保留�
   assert.equal(getKnockoutBracket(stage).rounds[0].matches[0].winnerName,'');
 });
 
-test('晋级图不显示空位文字，左右比分镜像且连线仅含直角直线', () => {
+test('晋级图保留空白气泡、隐藏赛段标题，左右比分镜像且仅用直角连线', () => {
   const stage=createKnockoutStage('men-freshman-cup','男足');
   let {svg}=buildKnockoutPoster(stage);
   assert.doesNotMatch(svg,/待晋级|待填球队|待填轮空球队|>–</);
+  assert.equal([...svg.matchAll(/<rect\b[^>]*\brx="22"/g)].length,22);
+  assert.doesNotMatch(svg,/>十二进八<|>八进四<|>半决赛<|>决赛</);
   const paths=[...svg.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1]);
   assert.ok(paths.length>0);assert.ok(paths.every(path=>!/[CQASLT]/i.test(path)));
   setKnockoutTeam(stage,{matchId:'men-r12-1',name:'左队'});setKnockoutTeam(stage,{matchId:'men-r12-1',side:'away',name:'左客'});

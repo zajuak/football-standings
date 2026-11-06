@@ -126,9 +126,9 @@ export function buildKnockoutPoster(knockout) {
   const men = bracket.rounds.length === 4;
   const width = men ? 1600 : 1200;
   const center = width / 2;
-  const pillWidth = 144;
+  const pillWidth = 160;
   const pillHeight = 44;
-  const finalPillWidth = 144;
+  const finalPillWidth = 160;
   const top = men ? 190 : 220;
   const leafStride = 128;
   const xForLevel = (level, side) => {
@@ -171,6 +171,7 @@ export function buildKnockoutPoster(knockout) {
   const connectors = [];
   const pills = [];
   const details = [];
+  const scoreGap = 24;
   const units = value => Array.from(String(value)).reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 1 : .55), 0);
   const addPill = (slotX, y, maxWidth, match, side, chartSide) => {
     const name = match[side].name;
@@ -180,7 +181,7 @@ export function buildKnockoutPoster(knockout) {
     const penalty = match.penalties?.[`${side}Score`];
     const score = baseScore === '' ? '' : penalty != null ? `${baseScore}(${penalty})` : String(baseScore);
     const scoreWidth = units(score) * 22;
-    const width = Math.min(maxWidth, Math.max(96, units(name) * 26 + scoreWidth + 24 + (score ? 10 : 0)));
+    const width = Math.min(maxWidth, Math.max(132, units(name) * 26 + scoreWidth + 24 + (score ? scoreGap : 0)));
     const pill = { x: slotX + (chartSide === 'left' ? maxWidth - width : 0), y, width, match, side, chartSide, score, scoreWidth };
     pills.push(pill);
     return pill;
@@ -224,22 +225,16 @@ export function buildKnockoutPoster(knockout) {
   svg.push(`<rect width="${width}" height="${height}" fill="#ffffff"/>`);
   svg.push('<g shape-rendering="geometricPrecision">');
   svg.push(text(center, 72, bracket.title, { size: fittedSize(bracket.title, width - 160, 40, 25), weight: 800, color: '#111111' }));
-  const roundLabels = men
-    ? [[xForLevel(3, 'left') + pillWidth / 2, bracket.rounds[0].name], [xForLevel(2, 'left') + pillWidth / 2, bracket.rounds[1].name], [xForLevel(1, 'left') + pillWidth / 2, bracket.rounds[2].name], [xForLevel(1, 'right') + pillWidth / 2, bracket.rounds[2].name], [xForLevel(2, 'right') + pillWidth / 2, bracket.rounds[1].name], [xForLevel(3, 'right') + pillWidth / 2, bracket.rounds[0].name]]
-    : [[xForLevel(1, 'left') + pillWidth / 2, bracket.rounds[0].name], [xForLevel(1, 'right') + pillWidth / 2, bracket.rounds[0].name]];
-  for (const [x, label] of roundLabels) svg.push(text(x, 146, label, { size: 18, weight: 600, color: '#777777' }));
-  svg.push(text(center, finalY - 82, bracket.rounds.at(-1).name, { size: 18, weight: 600, color: '#777777' }));
   svg.push(`<g fill="none" stroke="#a84b55" stroke-width="1.6" stroke-linecap="butt" stroke-linejoin="miter">${connectors.join('')}</g>`);
   for (const pill of pills) {
     const team = pill.match[pill.side];
-    if (!team.name) continue;
     const name = team.name;
     const winner = pill.match.winnerName && pill.match.winnerName === team.name;
     const eliminated = pill.match.winnerName && team.name && !winner;
     const nameColor = eliminated ? '#f3f3f3' : team.name ? '#a32636' : '#888888';
     svg.push(`<rect x="${pill.x}" y="${pill.y - pillHeight / 2}" width="${pill.width}" height="${pillHeight}" rx="22" fill="url(#${eliminated ? 'knockout-out' : 'knockout-pill'})"${winner ? ' stroke="#ad2638" stroke-width="2"' : ''} filter="url(#knockout-shadow)"/>`);
     const mirrored = pill.chartSide === 'right';
-    const labelWidth = pill.width - 24 - pill.scoreWidth - (pill.score ? 10 : 0);
+    const labelWidth = pill.width - 24 - pill.scoreWidth - (pill.score ? scoreGap : 0);
     svg.push(bracketLabel(mirrored ? pill.x + pill.width - 12 : pill.x + 12, pill.y, name, labelWidth, { maximum: 26, minimum: 12, weight: 700, anchor: mirrored ? 'end' : 'start', color: nameColor }));
     svg.push(text(mirrored ? pill.x + 12 : pill.x + pill.width - 12, pill.y, pill.score, { size: 22, weight: winner ? 800 : 600, anchor: mirrored ? 'start' : 'end', color: eliminated ? '#f3f3f3' : winner ? '#a32636' : '#333333' }));
   }
