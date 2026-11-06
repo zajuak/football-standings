@@ -155,10 +155,16 @@ export function buildKnockoutPoster(knockout) {
       node.x = xForLevel(node.level, node.side);
       if (!node.children?.length) {
         node.centerY = top + 48 + leafIndex * leafStride;
+        node.homeY = node.centerY - 26;
+        node.awayY = node.centerY + 26;
         leafIndex += 1;
       } else {
         node.children.forEach(position);
-        node.centerY = (node.children[0].centerY + node.children.at(-1).centerY) / 2;
+        // A qualifier occupies the midpoint of its feeder match. Using fixed
+        // offsets here disconnects later bubbles from the preceding bracket.
+        node.homeY = node.children[0].centerY;
+        node.awayY = node.children[1].centerY;
+        node.centerY = (node.homeY + node.awayY) / 2;
       }
     };
     position(root);
@@ -191,15 +197,15 @@ export function buildKnockoutPoster(knockout) {
     if (node.kind === 'bye') return;
     const baseX = node.x + (direction === 1 ? pillWidth : 0);
     const joinX = (baseX + targetX) / 2;
-    const upperY = node.centerY - 26;
-    const lowerY = node.centerY + 26;
-    connectors.push(`<path d="M ${baseX} ${upperY} H ${joinX} M ${baseX} ${lowerY} H ${joinX} M ${joinX} ${Math.min(upperY, targetY)} V ${Math.max(lowerY, targetY)} M ${joinX} ${targetY} H ${targetX}"/>`);
+    const upperY = node.homeY;
+    const lowerY = node.awayY;
+    connectors.push(`<path d="M ${baseX} ${upperY} H ${joinX} M ${baseX} ${lowerY} H ${joinX} M ${joinX} ${upperY} V ${lowerY} M ${joinX} ${targetY} H ${targetX}"/>`);
   };
   const layoutNode = node => {
     if (node.kind === 'bye') return;
     const teamPills = [
-      addPill(node.x, node.centerY - 26, pillWidth, node.match, 'home', node.side),
-      addPill(node.x, node.centerY + 26, pillWidth, node.match, 'away', node.side),
+      addPill(node.x, node.homeY, pillWidth, node.match, 'home', node.side),
+      addPill(node.x, node.awayY, pillWidth, node.match, 'away', node.side),
     ];
     if (node.match.legs.length === 2) details.push(node);
     node.children?.forEach((child, index) => {

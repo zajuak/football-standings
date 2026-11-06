@@ -258,3 +258,34 @@ test('晋级图保留空白气泡、隐藏赛段标题，左右比分镜像且�
     assert.ok(value);assert.equal(value.x<label.x,mirrored);
   }
 });
+
+test('男女足每条晋级线的出口都对齐两队中点，端点精确落在气泡边缘', () => {
+  for(const id of ['men-freshman-cup','women-pku-cup']) {
+    const stage=createKnockoutStage(id,'对齐验收');
+    for(const populated of [false,true]) {
+      if(populated){
+        const first=stage.rounds[0].matches[0];
+        setKnockoutTeam(stage,{matchId:first.id,name:'测试长队名以验证气泡宽度变化'});
+        setKnockoutTeam(stage,{matchId:first.id,side:'away',name:'客队'});
+        result(stage,first.id,0,2,1);
+      }
+      const {svg}=buildKnockoutPoster(stage);
+      const bubbles=[...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="22"/g)]
+        .map(([,x,y,width,height])=>({x:Number(x),y:Number(y)+Number(height)/2,width:Number(width)}));
+      const paths=[...svg.matchAll(/<path d="([^"]+)"/g)].map(match=>match[1]);
+      assert.equal(paths.length,id==='men-freshman-cup'?10:2);
+      const onBubble=(x,y)=>bubbles.some(b=>b.y===y&&(Math.abs(b.x-x)<1e-8||Math.abs(b.x+b.width-x)<1e-8));
+      for(const path of paths){
+        const n=path.match(/[\d.]+/g).map(Number);
+        // Two horizontal input arms, one vertical join, one horizontal output.
+        const sourceX=n[0],upperY=n[1],otherX=n[3],lowerY=n[4],outputY=n[10],targetX=n[11];
+        assert.equal(n.length,12);
+        assert.equal(sourceX,otherX);
+        assert.equal(outputY,(upperY+lowerY)/2,'晋级气泡必须位于上一场两队正中');
+        assert.ok(onBubble(sourceX,upperY),'上队连线应接在气泡边缘');
+        assert.ok(onBubble(sourceX,lowerY),'下队连线应接在气泡边缘');
+        assert.ok(onBubble(targetX,outputY),'晋级横线应接在下一轮气泡中心');
+      }
+    }
+  }
+});
