@@ -190,10 +190,10 @@ export function buildKnockoutPoster(knockout) {
     const direction = node.side === 'left' ? 1 : -1;
     if (node.kind === 'bye') return;
     const baseX = node.x + (direction === 1 ? pillWidth : 0);
-    const joinX = baseX + direction * 12;
-    connectors.push(`<path d="M ${baseX} ${node.centerY - 26} H ${joinX} V ${node.centerY + 26} H ${baseX}"/>`);
-    const elbow = (joinX + targetX) / 2;
-    connectors.push(`<path d="M ${joinX} ${node.centerY} H ${elbow} V ${targetY} H ${targetX}"/>`);
+    const joinX = (baseX + targetX) / 2;
+    const upperY = node.centerY - 26;
+    const lowerY = node.centerY + 26;
+    connectors.push(`<path d="M ${baseX} ${upperY} H ${joinX} M ${baseX} ${lowerY} H ${joinX} M ${joinX} ${Math.min(upperY, targetY)} V ${Math.max(lowerY, targetY)} M ${joinX} ${targetY} H ${targetX}"/>`);
   };
   const layoutNode = node => {
     if (node.kind === 'bye') return;
