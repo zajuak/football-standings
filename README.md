@@ -22,6 +22,8 @@ GitHub Pages 提供编辑器，Cloudflare Workers + D1 保存所有赛事及提�
 
 ## 开发与发布
 
+自有服务器后端的部署、完整历史迁入与只读副本说明见 [server/README.md](server/README.md)。这条部署路径独立于原 GitHub Pages + Cloudflare，准备副本时不会切换现有网站。
+
 要求 Node.js >= 22，没有第三方前端运行依赖。
 
 ```sh

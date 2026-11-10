@@ -1,0 +1,15 @@
+[Unit]
+Description=Consistent football standings database backup
+
+[Service]
+Type=oneshot
+User=football-standings
+Group=football-standings
+EnvironmentFile=/etc/football-standings.env
+ExecStart=/usr/bin/python3 /opt/football-standings/current/server/backup.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/football-standings /var/backups/football-standings
