@@ -92,10 +92,11 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .stage-switch button.is-active { background: #fff; color: var(--blue-dark); box-shadow: 0 1px 4px rgba(25, 38, 56, .12); }
 .stage-picker p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .settings-fields { margin-top: 17px; }
+.date-selection { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
 .field-full { grid-column: 1 / -1; }
 .field { display: grid; gap: 7px; min-width: 0; }
-.field > span, .score-field label { color: #566174; font-size: 12px; font-weight: 600; }
+.field > span, .field > label, .score-field label { color: #566174; font-size: 12px; font-weight: 600; }
 input, select { width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid #d5dce5; border-radius: 8px; background: #fff; color: var(--ink); outline: none; transition: border-color .15s, box-shadow .15s; }
 input:hover, select:hover { border-color: #b6c2d1; }
 input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(40, 103, 178, .11); }

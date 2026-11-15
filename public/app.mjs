@@ -8,7 +8,7 @@ import { getSeasonFairPlay } from './fair-play.mjs';
 import { validSnapshot } from './snapshot.mjs';
 import { CloudSync } from './cloud-sync.mjs';
 import { interactionState } from './interaction-state.mjs';
-import { currentDisplayDate } from './display-date.mjs';
+import { currentDisplayDate, DisplayDateSelection } from './display-date.mjs';
 
 const VIEW_KEY = 'pku-football-active-competition-v1';
 const AUTH_KEY = 'pku-football-editor-authenticated-v1';
@@ -44,6 +44,7 @@ let cardsTouched = { home: false, away: false };
 let previewMode = 'groups';
 const activeStages = new Map();
 const activeSeasons = new Map();
+const displayDates = new DisplayDateSelection();
 let editorAuthenticated = false;
 try { editorAuthenticated = sessionStorage.getItem(AUTH_KEY) === '1'; } catch {}
 
@@ -73,6 +74,8 @@ function activeStageId() {
 function competition() {
   return getCompetitionStage(activeSeasonCompetition(), activeStageId());
 }
+
+function displayDateKey() { return `${activeStageKey()}:${activeStageId()}`; }
 
 let saveTimer;
 let cloudLoaded = false;
@@ -163,6 +166,8 @@ function updatePermissions() {
 
 function renderPreview() {
   const current = competition();
+  const displayDate = displayDates.get(displayDateKey());
+  if (elements.date.value !== displayDate) elements.date.value = displayDate;
   const knockout = activeStageId() === 'knockout';
   $('preview-title').textContent = knockout ? '淘汰赛晋级图预览' : '积分榜预览';
   $('preview-subtitle').textContent = knockout ? '按比赛轮次排列 · 自动显示晋级球队' : 'A4 竖版 · 与 Word 版式一致';
@@ -175,7 +180,7 @@ function renderPreview() {
     previewMode = 'groups';
     $('preview-view-controls').hidden = true;
     $('comparison-hint').hidden = true;
-    currentPoster = buildKnockoutPoster(current, logoDataUri);
+    currentPoster = buildKnockoutPoster(current, { date: displayDate });
     elements.poster.innerHTML = currentPoster.svg;
     return;
   }
@@ -191,7 +196,7 @@ function renderPreview() {
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-pressed', String(active));
   }
-  currentPoster = buildPoster(current, logoDataUri, { mode: previewMode });
+  currentPoster = buildPoster(current, logoDataUri, { mode: previewMode, date: displayDate });
   elements.poster.innerHTML = currentPoster.svg;
 }
 
@@ -220,7 +225,7 @@ function renderCompetition() {
       ? `${stageNames.group}与其他阶段的分组、球队和赛果分别保存。`
       : current.groups.length ? `${stageNames.placement}数据独立保存，不会影响${stageNames.group}积分榜。` : '尚未进行抽签和分组，可先在下方添加小组与球队。';
   elements.title.value = current.title;
-  elements.date.value = currentDisplayDate();
+  elements.date.value = displayDates.get(displayDateKey());
   if (stage === 'knockout') {
     const summary = getKnockoutSummary(current);
     elements.summary.textContent = `${summary.total} 场对阵 · ${summary.played} 场已分胜负`;
@@ -726,6 +731,19 @@ elements.title.addEventListener('input', () => {
   scheduleSave();
   renderPreview();
 });
+function changeDisplayDate() {
+  if (elements.date.validity.badInput) return;
+  try {
+    displayDates.select(displayDateKey(), elements.date.value);
+    renderPreview();
+  } catch (error) { toast(error.message); }
+}
+elements.date.addEventListener('input', changeDisplayDate);
+elements.date.addEventListener('change', changeDisplayDate);
+$('use-today').addEventListener('click', () => {
+  displayDates.select(displayDateKey(), '');
+  renderPreview();
+});
 elements.matchGroup.addEventListener('change', () => {
   elements.formError.textContent = '';
   if (editingMatchId) cardsTouched = { home: true, away: true };
@@ -960,9 +978,10 @@ function canRefresh() {
     ![...elements.matchForm.querySelectorAll('.card-inputs input')].some(input => Number(input.value));
 }
 function refreshDisplayDate() {
-  const today = currentDisplayDate();
-  if (elements.date.value === today) return;
-  elements.date.value = today;
+  if (document.activeElement === elements.date) return;
+  const selected = displayDates.get(displayDateKey());
+  if (elements.date.value === selected) return;
+  elements.date.value = selected;
   renderPreview();
 }
 window.addEventListener('online', () => { void retrySync(); });

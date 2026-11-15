@@ -61,7 +61,7 @@
         </form>
         <div class="field-grid settings-fields">
           <label class="field field-full"><span>榜单标题</span><input id="competition-title" type="text" maxlength="60" autocomplete="off"></label>
-          <label class="field"><span>榜单日期（自动更新）</span><input id="competition-date" type="date" readonly disabled title="按北京时间自动更新，预览和导出均使用当天日期"></label>
+          <div class="field"><label for="competition-date"><span>榜单日期（默认今天）</span></label><div class="date-selection"><input id="competition-date" type="date" title="默认北京时间当天，可自行选择用于本页预览和导出的日期"><button class="button button-quiet" id="use-today" type="button">今天</button></div></div>
           <div class="field stats-summary"><span>当前数据</span><strong id="competition-summary">18 支球队 · 0 场新增赛果</strong></div>
         </div>
       </section>

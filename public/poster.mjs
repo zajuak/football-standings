@@ -25,7 +25,7 @@ function cell(x, y, width, height, fill) {
   return `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" stroke="#c8cdd4" stroke-width="1.5"/>`;
 }
 
-export function buildPoster(competition, logoDataUri = '', { mode = 'groups' } = {}) {
+export function buildPoster(competition, logoDataUri = '', { mode = 'groups', date = currentDisplayDate() } = {}) {
   const standings = calculateStandings(competition);
   const groupSizes = standings.map(group => group.rows.length);
   const positionCount = standings.length ? Math.min(...groupSizes) : 0;
@@ -93,7 +93,7 @@ export function buildPoster(competition, logoDataUri = '', { mode = 'groups' } =
   }
 
   svg.push(text(TABLE_X + TABLE_WIDTH, footerY, '北京大学足球协会竞赛部', { size: 23, anchor: 'end' }));
-  svg.push(text(TABLE_X + TABLE_WIDTH, footerY + 39, formatChineseDate(currentDisplayDate()), { size: 23, anchor: 'end' }));
+  svg.push(text(TABLE_X + TABLE_WIDTH, footerY + 39, formatChineseDate(date), { size: 23, anchor: 'end' }));
   svg.push('</g></svg>');
   return { svg: svg.join(''), width: WIDTH, height };
 }
@@ -120,7 +120,7 @@ function bracketLabel(x, y, value, width, options = {}) {
   return `<g><title>${escapeXml(full)}</title>${text(x, y, label, { ...style, size: fittedSize(label, width, maximum, minimum) })}</g>`;
 }
 
-export function buildKnockoutPoster(knockout) {
+export function buildKnockoutPoster(knockout, { date = currentDisplayDate() } = {}) {
   const bracket = getKnockoutBracket(knockout);
   const matches = new Map(bracket.rounds.flatMap(round => round.matches).map(match => [match.id, match]));
   const final = bracket.rounds.at(-1).matches[0];
@@ -252,7 +252,7 @@ export function buildKnockoutPoster(knockout) {
   svg.push(text(center, finalY, 'VS', { size: 56, weight: 700, color: '#b2b2b2' }));
   if (final.winnerName) svg.push(text(center, finalY + 70, `冠军 · ${final.winnerName}`, { size: 25, weight: 700, color: '#a32636' }));
   svg.push(text(width - 70, footerY, '北京大学足球协会竞赛部', { size: 20, anchor: 'end', color: '#333333' }));
-  svg.push(text(width - 70, footerY + 34, formatChineseDate(currentDisplayDate()), { size: 20, anchor: 'end', color: '#333333' }));
+  svg.push(text(width - 70, footerY + 34, formatChineseDate(date), { size: 20, anchor: 'end', color: '#333333' }));
   svg.push('</g></svg>');
   return { svg: svg.join(''), width, height };
 }
