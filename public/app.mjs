@@ -8,6 +8,7 @@ import { getSeasonFairPlay } from './fair-play.mjs';
 import { validSnapshot } from './snapshot.mjs';
 import { CloudSync } from './cloud-sync.mjs';
 import { interactionState } from './interaction-state.mjs';
+import { currentDisplayDate } from './display-date.mjs';
 
 const VIEW_KEY = 'pku-football-active-competition-v1';
 const AUTH_KEY = 'pku-football-editor-authenticated-v1';
@@ -146,7 +147,7 @@ function updatePermissions() {
   $('readonly-banner').textContent = access.notice;
   $('readonly-banner').hidden = !access.notice;
   $('team-manager').querySelector('.summary-action').textContent = access.canEdit ? '展开编辑' : '查看球队';
-  for (const control of [elements.title, elements.date, $('add-competition'), $('add-season'), $('add-group'), $('import-data'), $('cloud-keep'), $('cloud-read')]) control.disabled = !access.canEdit;
+  for (const control of [elements.title, $('add-competition'), $('add-season'), $('add-group'), $('import-data'), $('cloud-keep'), $('cloud-read')]) control.disabled = !access.canEdit;
   for (const form of [elements.matchForm, $('new-competition-form'), $('new-season-form')]) {
     for (const control of form.elements) control.disabled = !access.canEdit;
   }
@@ -219,7 +220,7 @@ function renderCompetition() {
       ? `${stageNames.group}与其他阶段的分组、球队和赛果分别保存。`
       : current.groups.length ? `${stageNames.placement}数据独立保存，不会影响${stageNames.group}积分榜。` : '尚未进行抽签和分组，可先在下方添加小组与球队。';
   elements.title.value = current.title;
-  elements.date.value = current.date;
+  elements.date.value = currentDisplayDate();
   if (stage === 'knockout') {
     const summary = getKnockoutSummary(current);
     elements.summary.textContent = `${summary.total} 场对阵 · ${summary.played} 场已分胜负`;
@@ -711,7 +712,7 @@ $('new-competition-form').addEventListener('submit', event => {
   event.preventDefault();
   if (!canEdit()) return;
   try {
-    const current = createCompetition({ name: $('new-competition-name').value, format: $('new-competition-format').value, date: new Date().toLocaleDateString('en-CA') });
+    const current = createCompetition({ name: $('new-competition-name').value, format: $('new-competition-format').value, date: currentDisplayDate() });
     state.competitions.push(current); state.activeCompetitionId = current.id;
     cancelEdit(); save('新增赛事'); renderAll(true);
     $('new-competition-form').reset(); $('new-competition-form').hidden = true;
@@ -725,17 +726,6 @@ elements.title.addEventListener('input', () => {
   scheduleSave();
   renderPreview();
 });
-function changeDate(event) {
-  if (!canEdit()) return;
-  const value = elements.date.value;
-  if (elements.date.validity.badInput || (value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) return;
-  competition().date = value;
-  renderPreview();
-  if (event.type === 'change') save('修改榜单日期');
-  else scheduleSave('修改榜单日期');
-}
-elements.date.addEventListener('input', changeDate);
-elements.date.addEventListener('change', changeDate);
 elements.matchGroup.addEventListener('change', () => {
   elements.formError.textContent = '';
   if (editingMatchId) cardsTouched = { home: true, away: true };
@@ -915,11 +905,13 @@ for (const button of document.querySelectorAll('[data-preview-mode]')) {
   });
 }
 $('download-svg').addEventListener('click', () => {
+  refreshDisplayDate();
   download(new Blob([currentPoster.svg], { type: 'image/svg+xml;charset=utf-8' }), exportName('svg'));
   toast('SVG 图片已导出');
 });
 
 elements.downloadPng.addEventListener('click', async () => {
+  refreshDisplayDate();
   elements.downloadPng.disabled = true;
   try {
     const { svg, width, height } = currentPoster;
@@ -963,17 +955,24 @@ async function retrySync() {
 }
 void retrySync();
 function canRefresh() {
-  return cloudLoaded && !cloudActionRunning && elements.date.value === competition().date && !saveTimer && !editingMatchId && !elements.homeScore.value && !elements.awayScore.value &&
+  return cloudLoaded && !cloudActionRunning && !saveTimer && !editingMatchId && !elements.homeScore.value && !elements.awayScore.value &&
     !document.activeElement?.matches('input, select, textarea') &&
     ![...elements.matchForm.querySelectorAll('.card-inputs input')].some(input => Number(input.value));
 }
+function refreshDisplayDate() {
+  const today = currentDisplayDate();
+  if (elements.date.value === today) return;
+  elements.date.value = today;
+  renderPreview();
+}
 window.addEventListener('online', () => { void retrySync(); });
 setInterval(() => {
+  refreshDisplayDate();
   if (!cloudLoaded || cloud.queue.length) void retrySync();
   else if (canRefresh()) void cloud.refresh();
 }, 15000);
-window.addEventListener('focus', () => { if (canRefresh()) void cloud.refresh(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && canRefresh()) void cloud.refresh(); });
+window.addEventListener('focus', () => { refreshDisplayDate(); if (canRefresh()) void cloud.refresh(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshDisplayDate(); if (canRefresh()) void cloud.refresh(); } });
 window.addEventListener('beforeunload', event => {
   if (saveTimer) save();
   if (cloud.queue.length) { event.preventDefault(); event.returnValue = ''; }

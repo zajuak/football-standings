@@ -322,14 +322,15 @@ test('全部共同名次的组间比较合并为一张表并只说明一次剔�
   assert.doesNotMatch(svg, />A组<\/text>/);
 });
 
-test('海报使用中文日期并转义可编辑文本', () => {
+test('海报使用当天中文日期并转义可编辑文本', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-15T02:00:00Z') });
   const competition = menCompetition();
   competition.title = '测试<积分榜>';
   const { svg, width, height } = buildPoster(competition);
   assert.equal(width, 1240);
   assert.ok(height >= 1754);
   assert.match(svg, /测试&lt;积分榜&gt;/);
-  assert.match(svg, /2026年10月29日/);
+  assert.match(svg, /2026年11月15日/);
   assert.equal(formatChineseDate('2026-01-05'), '2026年1月5日');
 });
 

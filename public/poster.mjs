@@ -1,5 +1,6 @@
 import { calculateCrossGroupStandings, calculateStandings, formatChineseDate, formatFairPlay } from './core.mjs';
 import { getKnockoutBracket } from './knockout.mjs';
+import { currentDisplayDate } from './display-date.mjs';
 
 const WIDTH = 1240;
 const TABLE_X = 100;
@@ -92,7 +93,7 @@ export function buildPoster(competition, logoDataUri = '', { mode = 'groups' } =
   }
 
   svg.push(text(TABLE_X + TABLE_WIDTH, footerY, '北京大学足球协会竞赛部', { size: 23, anchor: 'end' }));
-  svg.push(text(TABLE_X + TABLE_WIDTH, footerY + 39, formatChineseDate(competition.date), { size: 23, anchor: 'end' }));
+  svg.push(text(TABLE_X + TABLE_WIDTH, footerY + 39, formatChineseDate(currentDisplayDate()), { size: 23, anchor: 'end' }));
   svg.push('</g></svg>');
   return { svg: svg.join(''), width: WIDTH, height };
 }
@@ -251,7 +252,7 @@ export function buildKnockoutPoster(knockout) {
   svg.push(text(center, finalY, 'VS', { size: 56, weight: 700, color: '#b2b2b2' }));
   if (final.winnerName) svg.push(text(center, finalY + 70, `冠军 · ${final.winnerName}`, { size: 25, weight: 700, color: '#a32636' }));
   svg.push(text(width - 70, footerY, '北京大学足球协会竞赛部', { size: 20, anchor: 'end', color: '#333333' }));
-  svg.push(text(width - 70, footerY + 34, formatChineseDate(bracket.date), { size: 20, anchor: 'end', color: '#333333' }));
+  svg.push(text(width - 70, footerY + 34, formatChineseDate(currentDisplayDate()), { size: 20, anchor: 'end', color: '#333333' }));
   svg.push('</g></svg>');
   return { svg: svg.join(''), width, height };
 }
