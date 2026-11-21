@@ -1,8 +1,9 @@
 import { createId } from './core.mjs';
 import { contentFingerprint } from './state-content.mjs';
+import { RECORDS_API } from './runtime-config.mjs';
+import { sha256 } from './sha256.mjs';
 
 export const SYNC_KEY = 'pku-football-worker-cloud-v1';
-const API = 'https://football-standings-api.junkaizhao404.workers.dev/api/records';
 async function readResponse(response) {
   const raw = await response.text();
   try { return JSON.parse(raw); } catch { throw new Error('云端接口暂不可用，请稍后重试'); }
@@ -31,7 +32,7 @@ export class CloudSync {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await this.fetcher(`${API}${query}`, { ...options, signal: controller.signal });
+      const response = await this.fetcher(`${RECORDS_API}${query}`, { ...options, signal: controller.signal });
       const body = await readResponse(response);
       return { response, body };
     } catch (error) {
@@ -130,8 +131,7 @@ export class CloudSync {
     try {
       for (const item of records) {
         const source = item.submission_id ?? item.id ?? JSON.stringify(item);
-        const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
-        const hash = [...new Uint8Array(bytes)].map(x => x.toString(16).padStart(2, '0')).join('');
+        const hash = await sha256(source);
         const { response, body: result } = await this.post({ id: `import-${hash}`, baseRevision: 0, action: `导入历史：${item.action ?? '备份记录'}`.slice(0, 120), state: item.state, createdAt: item.created_at ?? item.createdAt, archiveOnly: true });
         if (!response.ok) throw new Error(result.error || '导入历史失败，可重试续传');
       }

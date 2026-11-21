@@ -44,4 +44,5 @@ yarn-error.log*
 # OS metadata
 .DS_Store
 /pages-dist/
+/campus-dist/
 /server/__pycache__/

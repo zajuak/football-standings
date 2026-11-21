@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readdirSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -68,6 +68,31 @@ test('HTTP 层拒绝无效 JSON、超限请求和不支持的方法', async t =>
   assert.equal((await server.post('x'.repeat(2_000_001))).status, 413);
   assert.equal((await fetch(`${server.url}/api/records`, { method: 'DELETE' })).status, 405);
   assert.equal((await server.get()).revision, 0);
+});
+
+test('独立校园版同源提供网页、资源和可写接口，不暴露源码、数据库或符号链接外的文件', async t => {
+  const dir = directory(t), web = path.join(dir, 'web');
+  mkdirSync(web);
+  writeFileSync(path.join(web, 'index.html'), '<title>校内积分榜</title>');
+  writeFileSync(path.join(web, 'runtime-config.mjs'), "export const RECORDS_API = '/api/records';");
+  writeFileSync(path.join(dir, 'private.mjs'), 'private data');
+  symlinkSync(path.join(dir, 'private.mjs'), path.join(web, 'escape.mjs'));
+  const server = await start(t, path.join(dir, 'standings.sqlite'), { readOnly: false, staticDirectory: web });
+  const page = await fetch(server.url);
+  assert.match(page.headers.get('content-type'), /text\/html/);
+  assert.match(await page.text(), /校内积分榜/);
+  const config = await fetch(`${server.url}/runtime-config.mjs?v=release`);
+  assert.match(config.headers.get('content-type'), /javascript/);
+  assert.match(await config.text(), /'\/api\/records'/);
+  const head = await fetch(server.url, { method: 'HEAD' });
+  assert.equal(head.status, 200); assert.equal(await head.text(), '');
+  for (const name of ['escape.mjs', 'standings.sqlite', 'server/main.mjs', '.env', '%2e%2e%2fprivate.mjs', '%2f..%2fprivate.mjs']) {
+    assert.equal((await fetch(`${server.url}/${name}`)).status, 404, name);
+  }
+  assert.equal((await fetch(server.url, { method: 'POST' })).status, 405);
+  assert.equal((await server.post(submission('campus', 0))).status, 200);
+  assert.equal((await server.get()).revision, 1);
+  assert.equal((await (await fetch(`${server.url}/health`)).json()).readOnly, false);
 });
 
 test('SQL 迁入保持原始版本号、冲突记录、时间和状态原文，续传幂等', t => {

@@ -1,10 +1,12 @@
 import { createServer } from 'node:http';
 import { handleRecords } from '../cloudflare/records-api.mjs';
 import { databaseSummary } from './database.mjs';
+import { staticFiles } from './static.mjs';
 
 const MAX_BODY = 2_000_000;
 
-export function createBackend({ db, readOnly = true, allowedOrigins = [] }) {
+export function createBackend({ db, readOnly = true, allowedOrigins = [], staticDirectory }) {
+  const serve = staticDirectory ? staticFiles(staticDirectory) : null;
   const server = createServer(async (incoming, outgoing) => {
     const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
     const send = (status, data) => {
@@ -19,7 +21,15 @@ export function createBackend({ db, readOnly = true, allowedOrigins = [] }) {
         if (origin !== url.origin && !allowedOrigins.includes(origin)) return send(403, { error: '请求来源不被允许。' });
         Object.assign(headers, { 'access-control-allow-origin': origin, vary: 'Origin', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'Content-Type' });
       }
-      if (!['/health', '/api/records'].includes(url.pathname)) return send(404, { error: '接口不存在。' });
+      if (!['/health', '/api/records'].includes(url.pathname)) {
+        if (!serve) return send(404, { error: '接口不存在。' });
+        const result = await serve(url.pathname, incoming.method);
+        if (result.status !== 200) return send(result.status, { error: '页面不存在或不支持此请求。' });
+        incoming.resume();
+        outgoing.writeHead(200, { ...headers, ...result.headers });
+        outgoing.end(result.body);
+        return;
+      }
       if (incoming.method === 'OPTIONS') { outgoing.writeHead(204, headers); outgoing.end(); return; }
       if (url.pathname === '/health') {
         if (incoming.method !== 'GET') return send(405, { error: '不支持的请求。' });

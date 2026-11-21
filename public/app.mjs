@@ -9,6 +9,7 @@ import { validSnapshot } from './snapshot.mjs';
 import { CloudSync } from './cloud-sync.mjs';
 import { interactionState } from './interaction-state.mjs';
 import { currentDisplayDate, DisplayDateSelection } from './display-date.mjs';
+import { sha256 } from './sha256.mjs';
 
 const VIEW_KEY = 'pku-football-active-competition-v1';
 const AUTH_KEY = 'pku-football-editor-authenticated-v1';
@@ -129,9 +130,7 @@ function option(value, label, selected = false) {
 }
 
 async function isCorrectPasscode(value) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  const hash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  return hash === PASSCODE_SHA256;
+  return await sha256(value) === PASSCODE_SHA256;
 }
 
 function permissions() {

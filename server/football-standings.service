@@ -1,5 +1,5 @@
 [Unit]
-Description=Football standings API (campus standby)
+Description=Football standings website and API (independent campus database)
 After=network.target
 
 [Service]

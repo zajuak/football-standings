@@ -16,11 +16,13 @@ function project(t) {
   write('public/styles.css', 'body { color: blue }');
   write('public/app.mjs', "import { value } from './core.mjs'; export const result = value; export const lazy = () => import('./core.mjs');");
   write('public/core.mjs', 'export const value = 1;');
-  const build = () => {
-    execFileSync(process.execPath, [buildScript], { cwd: directory });
-    const html = readFileSync(path.join(directory, 'pages-dist/index.html'), 'utf8');
+  write('public/runtime-config.mjs', "export const RECORDS_API = 'https://football-standings-api.junkaizhao404.workers.dev/api/records';");
+  const build = (campus = false) => {
+    execFileSync(process.execPath, [buildScript, ...(campus ? ['--campus'] : [])], { cwd: directory });
+    const output = campus ? 'campus-dist' : 'pages-dist';
+    const html = readFileSync(path.join(directory, output, 'index.html'), 'utf8');
     const source = html.match(/src="(.+?)"/)[1];
-    return { html, source, url: new URL(source, pathToFileURL(path.join(directory, 'pages-dist/index.html'))).href };
+    return { html, source, url: new URL(source, pathToFileURL(path.join(directory, output, 'index.html'))).href };
   };
   return { directory, write, build };
 }
@@ -34,6 +36,22 @@ test('发布入口、样式与静态及动态依赖使用一致资源版本', as
   assert.equal(built.split(`core.mjs?v=${version}`).length - 1, 2);
   const app = await import(release.url);
   assert.equal(app.result, 1); assert.equal((await app.lazy()).value, 1);
+});
+
+test('校园构建仅连接同源接口，不覆盖 Pages 构建或源配置，版本彼此独立', async t => {
+  const fixture = project(t);
+  fixture.write('index.html', '<div>北京大学足球协会</div><p>赛事数据统一同步到云端，切换不会新增历史</p><a href="https://football-standings-api.junkaizhao404.workers.dev/health">检查</a><script type="module" src="./app.mjs"></script>');
+  const pages = fixture.build(), campus = fixture.build(true);
+  const config = output => readFileSync(path.join(fixture.directory, output, 'runtime-config.mjs'), 'utf8');
+  assert.match(config('campus-dist'), /RECORDS_API = '\/api\/records'/);
+  assert.match(config('pages-dist'), /https:\/\/football-standings-api/);
+  assert.equal(config('pages-dist'), config('public'));
+  assert.match(campus.html, /校内独立版/);
+  assert.match(campus.html, /href="\/health"/);
+  assert.doesNotMatch(campus.html, /workers\.dev/);
+  assert.notEqual(campus.source, pages.source);
+  assert.equal(fixture.build().source, pages.source);
+  assert.equal(fixture.build(true).source, campus.source);
 });
 
 test('升级依赖后已缓存的旧模块不影响新版本，重复构建保持稳定', async t => {
